@@ -4,22 +4,22 @@
 set -e
 
 echo "============================="
-echo " Compiling and Running Tests "
+echo " Compiling QR Accuracy Tests "
 echo "============================="
 echo ""
 
-# Compile Arctan test
-gcc -o test_arctan test_arctan.c ../src/software/trig_approx.c -lm
-echo "[1/2] Arctan Tests:"
-./test_arctan
-echo ""
+# Compile the accuracy test suite
+gcc -Wall -Wextra -O3 -o test_qr_accuracy \
+    test_qr_accuracy.c \
+    ../src/software_base/math_utils.c \
+    ../src/software_base/qr_decomp.c \
+    -lm
 
-# Compile Trig test
-gcc -o test_trig test_trig.c ../src/software/trig_approx.c -lm
-echo "[2/2] Sine & Cosine Tests:"
-./test_trig
+echo "Running Tests..."
 echo ""
+./test_qr_accuracy
 
-# Cleanup
-rm test_arctan test_trig
+echo ""
+echo "Cleaning up..."
+rm test_qr_accuracy
 echo "All tests passed successfully!"

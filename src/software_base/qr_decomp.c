@@ -2,8 +2,8 @@
 #include "math_utils.h"
 
 // Apply a Givens rotation to rows i and j of matrix A (mutates A)
-static void apply_givens_rotation(int32_t *A, int32_t c, int32_t s, int32_t i,
-                                  int32_t j) {
+static void apply_givens_rotation_A(int32_t *A, int32_t c, int32_t s, int32_t i,
+                                    int32_t j) {
   int32_t *row_i = &A[i * MATRIX_SIZE];
   int32_t *row_j = &A[j * MATRIX_SIZE];
   int32_t temp_i, temp_j;
@@ -54,7 +54,7 @@ void qr_decomposition(const int32_t *A, int32_t *Q, int32_t *R) {
       int32_t s = sin_fixed(angle);
 
       // Apply the Givens rotation to rows i and j in R
-      apply_givens_rotation(R, c, s, i, j);
+      apply_givens_rotation_A(R, c, s, i, j);
 
       // Explicitly force the eliminated element to 0
       MAT_SET(R, i, j, 0);
