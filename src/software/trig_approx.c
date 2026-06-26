@@ -46,3 +46,30 @@ int32_t cos_fixed(int32_t X) {
         return FIXED_MUL(-1172, abs_X) + 2370;
     }
 }
+
+int32_t calculate_arctan_ratio(int32_t N, int32_t D) {
+    if (D == 0) {
+        return (N >= 0) ? PI_OVER_2_FIXED : -PI_OVER_2_FIXED;
+    }
+
+    int32_t abs_N = (N < 0) ? -N : N;
+    int32_t abs_D = (D < 0) ? -D : D;
+
+    if (abs_N <= abs_D) {
+        // |N/D| <= 1. Use standard division.
+        int32_t x_fixed = FIXED_DIV(N, D);
+        return arctan_fixed(x_fixed);
+    } else {
+        // |N/D| > 1. Compute arctan(D/N) instead.
+        int32_t inv_x_fixed = FIXED_DIV(D, N);
+        int32_t angle = arctan_fixed(inv_x_fixed);
+        
+        int32_t sign = ((N < 0) ^ (D < 0)) ? -1 : 1;
+        
+        if (sign > 0) {
+            return PI_OVER_2_FIXED - angle;
+        } else {
+            return -PI_OVER_2_FIXED - angle;
+        }
+    }
+}

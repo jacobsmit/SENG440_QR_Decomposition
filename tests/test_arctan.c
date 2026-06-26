@@ -26,5 +26,22 @@ int main() {
            fixed_angle, FIXED_TO_FLOAT(fixed_angle));
   }
 
+  printf("\nRunning calculate_arctan_ratio tests...\n");
+  float ratio_tests_N[] = { 1.5f, -1.5f, 0.5f, -0.5f, 2.0f };
+  float ratio_tests_D[] = { 0.5f,  0.5f, 1.5f,  1.5f, 0.0f };
+  
+  for (int i = 0; i < 5; i++) {
+    float true_angle = (ratio_tests_D[i] == 0.0f) ? (PI_OVER_2_FIXED/2048.0f) : atanf(ratio_tests_N[i] / ratio_tests_D[i]);
+    
+    int32_t N_fixed = FLOAT_TO_FIXED(ratio_tests_N[i]);
+    int32_t D_fixed = FLOAT_TO_FIXED(ratio_tests_D[i]);
+    
+    int32_t fixed_angle = calculate_arctan_ratio(N_fixed, D_fixed);
+    
+    printf("N: %.1f, D: %.1f (Ratio: %.1f)\n", ratio_tests_N[i], ratio_tests_D[i], (ratio_tests_D[i] == 0.0f) ? 999.9f : ratio_tests_N[i]/ratio_tests_D[i]);
+    printf("Standard atan(N/D): %f rad\n", true_angle);
+    printf("calculate_arctan_ratio(): %d (Float: %f rad)\n\n", fixed_angle, FIXED_TO_FLOAT(fixed_angle));
+  }
+
   return 0;
 }
