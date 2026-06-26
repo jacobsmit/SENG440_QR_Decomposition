@@ -26,4 +26,10 @@ void print_matrix(const int32_t* mat, const char* name);
 // Print the raw integer values of the matrix (for debugging fixed-point logic)
 void print_matrix_raw(const int32_t* mat, const char* name);
 
+// Apply a Givens rotation to rows i and j of matrix A
+void apply_givens_rotation(int32_t *A, int32_t c, int32_t s, int32_t i, int32_t j);
+
+// Apply a Givens rotation to columns i and j of matrix Q
+void apply_givens_rotation_Q(int32_t *Q, int32_t c, int32_t s, int32_t i, int32_t j);
+
 #endif // MATRIX_UTILS_H

@@ -26,5 +26,29 @@ int main() {
 
   print_matrix(Q_matrix, "Q (Identity)");
 
+  // Incremently select elements below the diagonal
+  int32_t opposite;
+  int32_t adjacent;
+  int32_t c;
+  int32_t s;
+
+  for (int j = 0; j < MATRIX_SIZE; j++) {
+    for (int i = j + 1; i < MATRIX_SIZE; i++) {
+      opposite = MAT_GET(A_matrix, i, j);
+      adjacent = MAT_GET(A_matrix, j, j);
+      c = cos_fixed(calculate_arctan_ratio(opposite, adjacent));
+      s = sin_fixed(calculate_arctan_ratio(opposite, adjacent));
+
+      apply_givens_rotation(A_matrix, c, s, i, j);
+      apply_givens_rotation_Q(Q_matrix, c, s, i, j);
+    }
+  }
+
+  print_matrix(A_matrix, "R (Final)");
+  print_matrix_raw(A_matrix, "R (Final)");
+
+  print_matrix(Q_matrix, "Q (Final)");
+  print_matrix_raw(Q_matrix, "Q (Final)");
+
   return 0;
 }
