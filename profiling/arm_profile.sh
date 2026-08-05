@@ -95,24 +95,54 @@ printf "%-24s" "class"
 for fs in "${FLAGSETS[@]}"; do printf "%16s" "${fs%%:*}"; done
 echo
 
+# Classify by the MNEMONIC FIELD, not by regex over the whole line.
+# objdump emits  "<addr>:\t<encoding>\t<mnemonic>\t<operands>", and in Thumb
+# mode mnemonics carry .n/.w width suffixes (b.n, beq.w) plus condition codes.
+# Matching raw lines undercounts Thumb branches badly, so strip suffixes first.
+mix_all() {
+    for fs in "${FLAGSETS[@]}"; do
+        name="${fs%%:*}"
+        awk -F'\t' -v OFS='' '
+          NF>=3 {
+            m = $3
+            gsub(/^[ \t]+|[ \t]+$/, "", m)
+            sub(/\..*$/, "", m)                      # drop .n / .w width suffix
+            total++
+            # strip a trailing condition code so beq/blt/... classify as branch
+            base = m
+            sub(/(eq|ne|cs|hs|cc|lo|mi|pl|vs|vc|hi|ls|ge|lt|gt|le|al)$/, "", base)
+            if (m ~ /^(mul|mla|muls|mls)$/)                        mul++
+            else if (m ~ /^(smull|umull|smlal|umlal|smmul|smmla)$/) lmul++
+            else if (m ~ /^(sdiv|udiv)$/)                          divh++
+            else if (m ~ /^(smlad|smladx|smuad|smuadx|smusd|smusdx)$/) simd32++
+            if (base ~ /^(b|bl|bx|blx|cbz|cbnz)$/ || m ~ /^(b|bl|bx|blx)$/) br++
+            if (m ~ /^(ldr|ldrb|ldrh|ldrd|ldm|str|strb|strh|strd|stm|push|pop)/) mem++
+          }
+          /__aeabi_idiv/ { idiv++ }
+          END {
+            printf "%d %d %d %d %d %d %d %d\n", total+0, mul+0, lmul+0, divh+0,
+                   idiv+0, simd32+0, br+0, mem+0
+          }' "$OUT/dis_$name.txt" > "$OUT/mix_$name.txt"
+    done
+}
+mix_all
 mix_row() {
-    local label="$1"; local pattern="$2"
+    local label="$1"; local field="$2"
     printf "%-24s" "$label"
     for fs in "${FLAGSETS[@]}"; do
         name="${fs%%:*}"
-        n=$(grep -cEi "$pattern" "$OUT/dis_$name.txt" 2>/dev/null || echo 0)
-        printf "%16s" "$n"
+        printf "%16s" "$(awk -v f="$field" '{print $f}' "$OUT/mix_$name.txt")"
     done
     echo
 }
-mix_row "total instructions"   $'\t'
-mix_row "multiply (mul/mla)"   '\<(mul|mla|muls)\>'
-mix_row "long mul (smull etc)" '\<(smull|umull|smlal|smmul)\>'
-mix_row "hardware divide"      '\<(sdiv|udiv)\>'
-mix_row "SOFTWARE divide call" '__aeabi_idiv'
-mix_row "SIMD32 dual-MAC"      '\<(smlad|smuad|smusd|smusdx|smladx)\>'
-mix_row "branches"             '\<(b|bl|beq|bne|bge|blt|ble|bgt|bx)\>'
-mix_row "loads/stores"         '\<(ldr|str|ldm|stm)'
+mix_row "total instructions"   1
+mix_row "multiply (mul/mla)"   2
+mix_row "long mul (smull etc)" 3
+mix_row "hardware divide"      4
+mix_row "SOFTWARE divide call" 5
+mix_row "SIMD32 dual-MAC"      6
+mix_row "branches"             7
+mix_row "loads/stores"         8
 
 echo
 echo "  KEY RESULT: compare 'hardware divide' against 'SOFTWARE divide call'."
