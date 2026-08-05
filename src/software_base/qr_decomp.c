@@ -4,6 +4,7 @@
 // Apply a Givens rotation to rows i and j of matrix A (mutates A)
 static void apply_givens_rotation_A(int32_t *A, int32_t c, int32_t s, int32_t i,
                                     int32_t j) {
+  OPCOUNT(rotations_row);
   int32_t *row_i = &A[i * MATRIX_SIZE];
   int32_t *row_j = &A[j * MATRIX_SIZE];
   int32_t temp_i, temp_j;
@@ -19,6 +20,7 @@ static void apply_givens_rotation_A(int32_t *A, int32_t c, int32_t s, int32_t i,
 // Apply a Givens rotation to columns i and j of matrix Q (mutates Q)
 static void apply_givens_rotation_Q(int32_t *Q, int32_t c, int32_t s, int32_t i,
                                     int32_t j) {
+  OPCOUNT(rotations_col);
   int32_t *col_i = &Q[i];
   int32_t *col_j = &Q[j];
   int32_t temp_i, temp_j;
@@ -34,6 +36,7 @@ static void apply_givens_rotation_Q(int32_t *Q, int32_t c, int32_t s, int32_t i,
 }
 
 void qr_decomposition(const int32_t *A, int32_t *Q, int32_t *R) {
+  OPCOUNT(qr_calls);
   // Initialize Q as Identity
   init_identity(Q);
 

@@ -8,8 +8,27 @@
 #define FLOAT_TO_FIXED(f) ((int32_t)((f) * FIXED_SCALE))
 #define FIXED_TO_FLOAT(i) ((float)(i) / FIXED_SCALE)
 
+/* Optional deterministic operation profiling (see profiling/op_counters.h).
+   When PROFILE_OPS is not defined this compiles to exactly the original macros;
+   when it is, the arithmetic is preserved bit-for-bit and only counted. */
+#ifdef PROFILE_OPS
+#include "../../profiling/op_counters.h"
+#define OPCOUNT(field) (g_ops.field++)
+static inline int32_t fixed_mul_counted(int32_t a, int32_t b) {
+  OPCOUNT(fixed_mul);
+  return ((int32_t)(a) * (int32_t)(b)) >> 11; /* identical to production */
+}
+static inline int32_t fixed_div_counted(int32_t a, int32_t b) {
+  OPCOUNT(fixed_div);
+  return ((a) << 11) / (b); /* identical to production */
+}
+#define FIXED_MUL(a, b) fixed_mul_counted((a), (b))
+#define FIXED_DIV(a, b) fixed_div_counted((a), (b))
+#else
+#define OPCOUNT(field) ((void)0)
 #define FIXED_MUL(a, b) (((int32_t)(a) * (int32_t)(b)) >> 11)
 #define FIXED_DIV(a, b) (((a) << 11) / (b))
+#endif
 
 #define PI_OVER_2_FIXED 3217
 

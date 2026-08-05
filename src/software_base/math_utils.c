@@ -3,35 +3,44 @@
 
 // --- Trig Approximations ---
 int32_t arctan_fixed(int32_t X) {
+    OPCOUNT(call_arctan);
     if (X >= 0) {
         if (X <= 1024) {
+            OPCOUNT(pwl_seg1);
             return FIXED_MUL(1900, X);
         } else {
+            OPCOUNT(pwl_seg2);
             return FIXED_MUL(1319, X) + 291;
         }
     } else {
         if (X >= -1024) {
+            OPCOUNT(pwl_seg1);
             return FIXED_MUL(1900, X);
         } else {
+            OPCOUNT(pwl_seg2);
             return FIXED_MUL(1319, X) - 291;
         }
     }
 }
 
 int32_t sin_fixed(int32_t X) {
+    OPCOUNT(call_sin);
     int32_t abs_X = (X < 0) ? -X : X;
     int32_t result;
     
     // Angle Reduction: If angle is > pi/4 (1608 fixed), fold it back using sin(x) = cos(pi/2 - x)
     if (abs_X > 1608) {
+        OPCOUNT(angle_folds);
         result = cos_fixed(PI_OVER_2_FIXED - abs_X);
         return (X < 0) ? -result : result;
     }
     
     // 3-segment symmetric approximation for bounded domain [-0.786, 0.786]
     if (abs_X <= 1024) {         // 0.5
+        OPCOUNT(pwl_seg1);
         result = FIXED_MUL(1984, abs_X);
     } else {
+        OPCOUNT(pwl_seg2);
         result = FIXED_MUL(1583, abs_X) + 201;
     }
     
@@ -40,23 +49,29 @@ int32_t sin_fixed(int32_t X) {
 }
 
 int32_t cos_fixed(int32_t X) {
+    OPCOUNT(call_cos);
     int32_t abs_X = (X < 0) ? -X : X;
     
     // Angle Reduction: If angle is > pi/4 (1608 fixed), fold it back using cos(x) = sin(pi/2 - x)
     if (abs_X > 1608) {
+        OPCOUNT(angle_folds);
         return sin_fixed(PI_OVER_2_FIXED - abs_X);
     }
     
     // 4-segment symmetric approximation for bounded domain [-0.786, 0.786]
     if (abs_X <= 768) {          // 0.375
+        OPCOUNT(pwl_seg1);
         return FIXED_MUL(-314, abs_X) + 2048; // cos(0) = 1.0
     } else {
+        OPCOUNT(pwl_seg2);
         return FIXED_MUL(-1172, abs_X) + 2370;
     }
 }
 
 int32_t calculate_arctan_ratio(int32_t N, int32_t D) {
+    OPCOUNT(call_atan2);
     if (D == 0) {
+        OPCOUNT(div_by_zero);
         return (N >= 0) ? PI_OVER_2_FIXED : -PI_OVER_2_FIXED;
     }
     int32_t abs_N = (N < 0) ? -N : N;
@@ -65,6 +80,7 @@ int32_t calculate_arctan_ratio(int32_t N, int32_t D) {
         int32_t x_fixed = FIXED_DIV(N, D);
         return arctan_fixed(x_fixed);
     } else {
+        OPCOUNT(atan2_reciprocal);
         int32_t inv_x_fixed = FIXED_DIV(D, N);
         int32_t angle = arctan_fixed(inv_x_fixed);
         int32_t sign = ((N < 0) ^ (D < 0)) ? -1 : 1;
