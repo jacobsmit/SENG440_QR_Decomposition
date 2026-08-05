@@ -40,11 +40,15 @@ echo
 
 # --- flag sets to compare --------------------------------------------------
 # Names must not contain spaces (used as filenames).
+# NOTE on armv5te: Debian's armhf gcc defaults to -mfloat-abi=hard, and ARMv5
+# has no FPU, so the build fails unless soft-float is requested explicitly.
+# This flagset exists to model "an embedded core with no hardware divider",
+# which is what the course notes' -march=armv5 assumes.
 FLAGSETS=(
   "debian-default:-O2 -marm"
   "cortex-a7:-O2 -marm -mcpu=cortex-a7"
   "cortex-a7-O3:-O3 -marm -mcpu=cortex-a7"
-  "armv5te-nodiv:-O2 -marm -march=armv5te"
+  "armv5te-nodiv:-O2 -marm -march=armv5te -mfloat-abi=soft"
   "cortex-a7-thumb:-O2 -mthumb -mcpu=cortex-a7"
 )
 
@@ -63,10 +67,16 @@ echo
 declare -A COUNT
 for fs in "${FLAGSETS[@]}"; do
     name="${fs%%:*}"; flags="${fs#*:}"
+    rm -f "$OUT/mu_$name.o" "$OUT/qr_$name.o"
     # shellcheck disable=SC2086
-    $CC $flags -c "$SRC/math_utils.c" -o "$OUT/mu_$name.o" 2>/dev/null
+    $CC $flags -c "$SRC/math_utils.c" -o "$OUT/mu_$name.o" 2>"$OUT/err_$name.txt"
     # shellcheck disable=SC2086
-    $CC $flags -c "$SRC/qr_decomp.c"  -o "$OUT/qr_$name.o" 2>/dev/null
+    $CC $flags -c "$SRC/qr_decomp.c"  -o "$OUT/qr_$name.o" 2>>"$OUT/err_$name.txt"
+    if [ ! -f "$OUT/mu_$name.o" ] || [ ! -f "$OUT/qr_$name.o" ]; then
+        echo "  !! BUILD FAILED for '$name' ($flags):"
+        sed 's/^/     /' "$OUT/err_$name.txt" | head -5
+        FAILED="${FAILED:-} $name"
+    fi
     $OBJDUMP -d "$OUT/mu_$name.o" "$OUT/qr_$name.o" > "$OUT/dis_$name.txt" 2>/dev/null
 
     for r in $ROUTINES; do
