@@ -19,6 +19,7 @@
 #include "../src/common/qr_iface.h"
 #include <math.h>
 #include <stdio.h>
+#include <string.h>
 
 /* Q is orthogonal, so every entry must lie in [-1, 1]. A little slack absorbs
    fixed-point rounding.
@@ -27,6 +28,22 @@
    bounded, because Q is built from c/s which never exceed 1.0. Overflow is
    caught by the RELATIVE reconstruction check instead. */
 #define Q_ENTRY_LIMIT 1.05f
+
+/* Worst values seen across every case, for the --csv summary that feeds the
+   report tables (make compare). */
+static float g_worst_recon_rel = 0.0f;
+static float g_worst_orth = 0.0f;
+static int g_quiet = 0;
+
+#define SAY(...)                                                               \
+  do {                                                                         \
+    if (!g_quiet) printf(__VA_ARGS__);                                         \
+  } while (0)
+
+static void note_worst(float recon_rel, float orth) {
+  if (recon_rel > g_worst_recon_rel) g_worst_recon_rel = recon_rel;
+  if (orth > g_worst_orth) g_worst_orth = orth;
+}
 
 typedef struct {
   const char *name;
@@ -114,23 +131,25 @@ static int run_random_suite(const random_suite_t *rs) {
     }
   }
 
+  note_worst(worst_recon_rel, worst_orth);
+
   int failures = 0;
-  printf("--- %s ---\n", rs->name);
-  printf("    (%d random integer matrices, entries in [-%d, %d], seed 12345)\n",
+  SAY("--- %s ---\n", rs->name);
+  SAY("    (%d random integer matrices, entries in [-%d, %d], seed 12345)\n",
          rs->n_matrices, rs->mag, rs->mag);
 
   int ok = (worst_recon_rel <= rs->tol_recon_rel);
-  printf("  %-22s %7.2f%% at #%-6d  (limit %5.2f%%)  %s\n", "worst recon rel",
+  SAY("  %-22s %7.2f%% at #%-6d  (limit %5.2f%%)  %s\n", "worst recon rel",
          worst_recon_rel * 100.0f, worst_recon_at, rs->tol_recon_rel * 100.0f,
          ok ? "PASS" : "**FAIL**");
   if (!ok) failures++;
 
   ok = (worst_orth <= rs->tol_orth);
-  printf("  %-22s %7.4f  at #%-6d  (limit %6.4f)  %s\n", "worst orth",
+  SAY("  %-22s %7.4f  at #%-6d  (limit %6.4f)  %s\n", "worst orth",
          worst_orth, worst_orth_at, rs->tol_orth, ok ? "PASS" : "**FAIL**");
   if (!ok) failures++;
 
-  printf("\n");
+  SAY("\n");
   return failures;
 }
 
@@ -138,8 +157,8 @@ static int run_random_suite(const random_suite_t *rs) {
 
 static int run_accuracy_test(const test_case_t *tc) {
   int failures = 0;
-  printf("--- %s ---\n", tc->name);
-  if (tc->note) printf("    (%s)\n", tc->note);
+  SAY("--- %s ---\n", tc->name);
+  if (tc->note) SAY("    (%s)\n", tc->note);
 
   int32_t A_matrix[MATRIX_ELEMENTS], Q_matrix[MATRIX_ELEMENTS],
       R_matrix[MATRIX_ELEMENTS];
@@ -159,7 +178,7 @@ static int run_accuracy_test(const test_case_t *tc) {
   float recon_rel = (scale > 0.0f) ? (recon_err / scale) : 0.0f;
 
   int ok = (recon_rel <= tc->tol_recon_rel);
-  printf("  %-22s %8.4f abs = %7.2f%% of max|A|  (limit %5.2f%%)  %s\n",
+  SAY("  %-22s %8.4f abs = %7.2f%% of max|A|  (limit %5.2f%%)  %s\n",
          "recon |A-QR|", recon_err, recon_rel * 100.0f,
          tc->tol_recon_rel * 100.0f, ok ? "PASS" : "**FAIL**");
   if (!ok) failures++;
@@ -171,33 +190,34 @@ static int run_accuracy_test(const test_case_t *tc) {
   matrix_multiply_f32(Q_float, Q_T_float, QQ_T_float);
   init_identity_f32(Identity);
   float orth_err = matrix_max_abs_diff_f32(Identity, QQ_T_float);
+  note_worst(recon_rel, orth_err);
   ok = (orth_err <= tc->tol_orth);
-  printf("  %-22s %8.4f%29s(limit %6.4f)  %s\n", "orth |I-QQ^T|", orth_err, "",
+  SAY("  %-22s %8.4f%29s(limit %6.4f)  %s\n", "orth |I-QQ^T|", orth_err, "",
          tc->tol_orth, ok ? "PASS" : "**FAIL**");
   if (!ok) failures++;
 
   /* 3. Q entries bounded. Sanity check on Q, not an overflow detector. */
   float q_max = matrix_max_abs_f32(Q_float);
   ok = (q_max <= Q_ENTRY_LIMIT);
-  printf("  %-22s %8.4f%29s(limit %6.4f)  %s\n", "max |Q_ij|", q_max, "",
+  SAY("  %-22s %8.4f%29s(limit %6.4f)  %s\n", "max |Q_ij|", q_max, "",
          (float)Q_ENTRY_LIMIT, ok ? "PASS" : "**FAIL**");
   if (!ok) failures++;
 
   if (tc->expect_fail) {
     if (failures) {
-      printf("  => XFAIL (expected: documents a known, unfixed bug)\n\n");
+      SAY("  => XFAIL (expected: documents a known, unfixed bug)\n\n");
       return 0;
     }
-    printf("  => XPASS !! This case was expected to FAIL but passed.\n");
-    printf("     Clear expect_fail so it becomes a real regression test.\n\n");
+    SAY("  => XPASS !! This case was expected to FAIL but passed.\n");
+    SAY("     Clear expect_fail so it becomes a real regression test.\n\n");
     return 0;
   }
 
-  printf("\n");
+  SAY("\n");
   return failures;
 }
 
-int main(void) {
+int main(int argc, char **argv) {
   static const test_case_t cases[] = {
       {"Standard Mixed-Sign Matrix",
        {4.0f, 1.0f, -2.0f, 2.0f, 1.0f, 2.0f, 0.0f, 1.0f, -2.0f, 0.0f, 3.0f,
@@ -244,10 +264,13 @@ int main(void) {
   };
   const int n_random = (int)(sizeof(random_suites) / sizeof(random_suites[0]));
 
-  printf("==========================================\n");
-  printf(" QR Accuracy Regression Suite\n");
-  printf(" variant: %s\n", QR_VARIANT_NAME);
-  printf("==========================================\n\n");
+  for (int i = 1; i < argc; i++)
+    if (strcmp(argv[i], "--csv") == 0) g_quiet = 1;
+
+  SAY("==========================================\n");
+  SAY(" QR Accuracy Regression Suite\n");
+  SAY(" variant: %s\n", QR_VARIANT_NAME);
+  SAY("==========================================\n\n");
 
   int total_failures = 0, failed_cases = 0, xfail_cases = 0;
   for (int i = 0; i < n_cases; i++) {
@@ -260,6 +283,15 @@ int main(void) {
     int f = run_random_suite(&random_suites[i]);
     total_failures += f;
     if (f) failed_cases++;
+  }
+
+  if (g_quiet) {
+    /* One row for make compare. Exit status still reflects pass/fail. */
+    printf("variant,worst_recon_rel_pct,worst_orth,failed_checks,result\n");
+    printf("%s,%.2f,%.4f,%d,%s\n", QR_VARIANT_NAME,
+           g_worst_recon_rel * 100.0f, g_worst_orth, total_failures,
+           total_failures == 0 ? "PASS" : "FAIL");
+    return total_failures == 0 ? 0 : 1;
   }
 
   printf("==========================================\n");

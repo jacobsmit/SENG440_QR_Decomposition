@@ -143,6 +143,22 @@ for v in $VARIANTS; do
     echo
 done
 
+# --- machine-readable summary for `make compare` -------------------------
+CSV=build/static.csv
+{
+  echo "variant,flagset,total_instr,mul,long_mul,hw_div,soft_idiv,simd32,clz,branches,mem_ops,vfp_ops"
+  for v in $VARIANTS; do
+    for fs in $FLAGSETS; do
+      m="$OUT/${v}__${fs}.mix"
+      [ -f "$m" ] || continue
+      awk -v v="$v" -v fs="$fs" '{printf "%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s\n",
+        v,fs,$1,$2,$3,$4,$5,$6,$7,$8,$9,$10}' "$m"
+    done
+  done
+} > "$CSV"
+echo "wrote $CSV"
+echo
+
 cat <<'NOTE'
 ============================================================
  Reading these tables

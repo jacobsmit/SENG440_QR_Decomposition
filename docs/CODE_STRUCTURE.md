@@ -104,11 +104,12 @@ Targets worth having:
 
 | target | does |
 |---|---|
-| `make test VARIANT=fixed_cordic` | accuracy suite for one variant |
+| `make test-<variant>` | accuracy suite for one variant |
 | `make test-all` | every variant, non-zero exit if any fails |
-| `make profile-all` | op counts + static counts for every variant |
+| `make profile-all` | operation counts for every variant |
+| `make static-all` | static instruction counts, variants x flagsets (needs ARM gcc) |
 | `make asm VARIANT=fixed_asm` | `-S` listings for inspection |
-| `make compare` | the CSV summary table (see below) |
+| `make compare` | all three, into the two CSVs below |
 
 `fixed_asip` is special: `make asm VARIANT=fixed_asip` produces the listing containing `GIVENSQ`
 and **stops** — it cannot assemble. A parallel `VARIANT=fixed_asip STUB=1` build swaps in the C
@@ -155,17 +156,33 @@ variant carries its own weights the comparison is meaningless.
 
 ## Emit CSV, don't retype numbers
 
-`make compare` should write `build/summary.csv`:
+`make compare` runs **all three** measurements — operation counts, accuracy, and static
+instruction counts — and writes two files:
 
 ```
-variant,flagset,static_instr,mul,div,shift_add,branch,ops_per_qr,worst_recon_rel,worst_orth
-fixed_scalar,cortex-a7,393,209.94,5.94,0,...,9.75%,0.0884
-fixed_cordic,cortex-a7,...
+build/ops.csv       one row per variant
+  variant,iterations,magnitude,mul,mac,divide,shift_add,decisions,rotations,
+  mul_per_qr,divide_per_qr,worst_recon_rel_pct,worst_orth,failed_checks,result
+
+build/static.csv    one row per variant x flagset
+  variant,flagset,total_instr,mul,long_mul,hw_div,soft_idiv,simd32,clz,
+  branches,mem_ops,vfp_ops
 ```
 
-The report's performance table is then generated, not transcribed. With six variants across four
-flag sets you will otherwise be hand-copying ~200 numbers, and hand-copied numbers are where
-report errors come from.
+**Two files, not one.** These are genuinely different tables: dynamic counts and accuracy are
+per variant, static counts are per variant *and* flagset. Flattening them into one CSV would
+duplicate every dynamic row once per flagset.
+
+Accuracy is included on purpose, and `compare` **exits non-zero if any variant fails its
+invariants** — a fast wrong answer is not a data point. The CSV is still written on failure, with
+`result=FAIL` and the failed-check count, so you can see what broke.
+
+If there is no ARM toolchain on the host, the static half is skipped with a clear message and
+`ops.csv` is still produced. Run `make compare` on the VM to fill in `static.csv`.
+
+The report's tables are then generated, not transcribed. With six variants across four flag sets
+you would otherwise hand-copy ~200 numbers, and hand-copied numbers are where report errors come
+from.
 
 ---
 

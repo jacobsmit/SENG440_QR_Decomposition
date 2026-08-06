@@ -119,20 +119,50 @@ asm:
 # ============================================================================
 # CSV summary for the report
 # ============================================================================
+# `compare` runs ALL THREE measurements and writes the report tables:
+#   build/ops.csv     one row per variant: operation counts + accuracy
+#   build/static.csv  one row per variant x flagset: instruction counts
+#
+# Two files rather than one because they are genuinely different tables --
+# dynamic counts are per variant, static counts are per variant AND flagset.
+# Denormalising them into a single CSV would duplicate every dynamic row.
+#
+# Accuracy is included deliberately: a fast wrong answer is not a data point,
+# so `compare` exits non-zero if any variant fails its invariants.
 compare:
 	@mkdir -p $(BUILD)
-	@first=1; \
+	@echo ">>> operation counts + accuracy"
+	@status=0; first=1; \
 	for v in $(VARIANTS); do \
-	  $(MAKE) -s $(BUILD)/$$v/profile; \
+	  $(MAKE) -s $(BUILD)/$$v/profile $(BUILD)/$$v/test; \
+	  prof=$$($(BUILD)/$$v/profile $(ITERATIONS) $(MAGNITUDE) --csv); \
+	  acc=$$($(BUILD)/$$v/test --csv) || status=1; \
 	  if [ $$first -eq 1 ]; then \
-	    $(BUILD)/$$v/profile $(ITERATIONS) $(MAGNITUDE) --csv > $(BUILD)/summary.csv; \
+	    printf '%s,%s\n' "$$(echo "$$prof" | head -1)" \
+	      "$$(echo "$$acc" | head -1 | cut -d, -f2-)" > $(BUILD)/ops.csv; \
 	    first=0; \
-	  else \
-	    $(BUILD)/$$v/profile $(ITERATIONS) $(MAGNITUDE) --csv | tail -n +2 >> $(BUILD)/summary.csv; \
 	  fi; \
-	done
-	@echo "wrote $(BUILD)/summary.csv"
-	@cat $(BUILD)/summary.csv
+	  printf '%s,%s\n' "$$(echo "$$prof" | tail -1)" \
+	    "$$(echo "$$acc" | tail -1 | cut -d, -f2-)" >> $(BUILD)/ops.csv; \
+	done; \
+	echo "wrote $(BUILD)/ops.csv"; \
+	cat $(BUILD)/ops.csv; \
+	echo; \
+	if [ -n "$(ARM_CC)" ]; then \
+	  echo ">>> static instruction counts"; \
+	  $(MAKE) -s static-all > $(BUILD)/static.log 2>&1 || true; \
+	  if [ -f $(BUILD)/static.csv ]; then cat $(BUILD)/static.csv; \
+	  else echo "  (static analysis produced no CSV -- see $(BUILD)/static.log)"; fi; \
+	else \
+	  echo ">>> static instruction counts SKIPPED (no ARM toolchain on this host)"; \
+	  echo "    run 'make compare' on the ARM VM to fill in build/static.csv"; \
+	fi; \
+	echo; \
+	if [ $$status -ne 0 ]; then \
+	  echo "!! at least one variant FAILED its accuracy invariants --"; \
+	  echo "   its performance numbers above are not trustworthy."; \
+	  exit 1; \
+	fi
 
 clean:
 	rm -rf $(BUILD) profiling/_profile_out
