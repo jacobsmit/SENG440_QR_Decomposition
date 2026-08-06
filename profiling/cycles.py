@@ -45,6 +45,7 @@ CLASS_CYCLES = {
     "branch": 2,       # TODO(TRM) taken branch
     "load": 3,         # TODO(TRM) L1 hit
     "store": 2,        # TODO(TRM)
+    "stack": 3,        # TODO(TRM) push/pop -- call frame overhead
     "fp_add": 4,       # TODO(TRM) vadd/vsub/vmul .f32
     "fp_div": 15,      # TODO(TRM) vdiv/vsqrt .f32 -- NOT pipelined
     "fp_move": 2,      # TODO(TRM) vmov/vldr/vstr
@@ -58,8 +59,12 @@ CLASSIFY = [
     (re.compile(r"^(vdiv|vsqrt)"), "fp_div"),
     (re.compile(r"^(vadd|vsub|vmul|vmla|vmls|vfma|vfms|vneg|vabs|vcvt|vcmp)"), "fp_add"),
     (re.compile(r"^(vmov|vldr|vstr|vpush|vpop|vldm|vstm)"), "fp_move"),
-    (re.compile(r"^(ldr|ldrb|ldrh|ldrd|ldm|pop)"), "load"),
-    (re.compile(r"^(str|strb|strh|strd|stm|push)"), "store"),
+    # push/pop/ldm/stm separated from data traffic: they are function-call
+    # frame overhead, which is fixed by inlining in C, not by hand assembly.
+    # Lumping them into load/store hid ~20 trig calls per QR of prologue cost.
+    (re.compile(r"^(push|pop|ldm|stm|ldmia|stmdb)"), "stack"),
+    (re.compile(r"^(ldr|ldrb|ldrh|ldrd|ldrsh|ldrsb)"), "load"),
+    (re.compile(r"^(str|strb|strh|strd)"), "store"),
     (re.compile(r"^(b|bl|bx|blx|cbz|cbnz)$"), "branch"),
 ]
 COND = re.compile(r"(eq|ne|cs|hs|cc|lo|mi|pl|vs|vc|hi|ls|ge|lt|gt|le|al)$")
