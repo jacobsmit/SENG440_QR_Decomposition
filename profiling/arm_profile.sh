@@ -60,7 +60,12 @@ for v in $VARIANTS; do
     for fs in $FLAGSETS; do
         flags="$(flags_for "$fs")"
         tag="${v}__${fs}"
-        rm -f "$OUT/$tag.o"
+        # Remove EVERY object for this tag, not "$tag.o" which never exists --
+        # the objects are ${tag}_<basename>.o. Getting this wrong left stale
+        # objects from earlier runs (op_counters.o in particular) to be picked
+        # up by the glob below, adding ~400 instructions and ~130 phantom VFP
+        # ops to every variant.
+        rm -f "$OUT/${tag}"_*.o "$OUT/$tag.dis" "$OUT/$tag.mix"
         # shellcheck disable=SC2086
         $CC $flags -Isrc/common -c "src/variants/$v/qr.c" -o "$OUT/${tag}_qr.o" \
             2>"$OUT/$tag.err"
