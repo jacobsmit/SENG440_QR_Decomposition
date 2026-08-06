@@ -33,15 +33,25 @@ static inline int32_t fixed_div(int32_t a, int32_t b) {
      exceeds 2^20. Doing it in 64 bits would work, but ARM has no 64/32 divide
      instruction, so that turns one SDIV into an __aeabi_ldiv library call.
      Instead, shift BOTH operands down by the same amount -- the quotient a/b
-     is unchanged by scaling -- until the numerator's << 11 fits. Keeps the
-     Cortex-A7's hardware SDIV. Runs 0-3 times for realistic inputs. */
+     is unchanged by scaling -- until the numerator fits in 20 bits.
+     Keeps the Cortex-A7's hardware SDIV.
+
+     The shift is computed with CLZ (count leading zeros) rather than a loop:
+     a value needs (32 - clz) bits, we need it to need at most 20, so the
+     shift is (32 - clz) - 20 = 12 - clz. One instruction instead of an
+     iteration whose count depends on the input, which also makes the cycle
+     count constant -- necessary for hand cycle-counting, since QEMU cannot
+     time anything (see docs/TARGET_PLATFORM.md).
+     __builtin_clz maps to the ARM CLZ instruction (ARMv5T and later;
+     __ARM_FEATURE_CLZ is set for cortex-a7). It is undefined for 0, hence
+     the guard.
+
+     Safe against b >> sh becoming 0: every caller passes |a| <= |b|, so
+     whenever a needs shifting b is at least as large. */
   int32_t aa = (a < 0) ? -a : a;
-  while (aa >= (1 << 20)) {
-    a >>= 1;
-    b >>= 1;
-    aa >>= 1;
-  }
-  return (a << 11) / b;
+  int sh = aa ? (12 - __builtin_clz((uint32_t)aa)) : 0;
+  if (sh < 0) sh = 0;
+  return ((a >> sh) << 11) / (b >> sh);
 }
 
 /* Optional deterministic operation profiling (see profiling/op_counters.h).
