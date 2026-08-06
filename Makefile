@@ -48,13 +48,13 @@ endif
 
 WARN := -Wall -Wextra
 
-.PHONY: all test-all profile-all static-all instr-all instr-detail compare clean help asm
+.PHONY: all test-all profile-all static-all instr-all instr-detail cycles compare clean help asm
 .PHONY: $(addprefix test-,$(VARIANTS)) $(addprefix profile-,$(VARIANTS))
 
 all: test-all
 
 help:
-	@echo "targets: test-all profile-all static-all instr-all instr-detail compare asm clean"
+	@echo "targets: test-all profile-all static-all instr-all instr-detail cycles compare asm clean"
 	@echo "variants: $(VARIANTS)"
 	@echo "flagsets: (see profiling/flagsets.sh)"
 
@@ -143,6 +143,36 @@ CG_ITERATIONS ?= 50
 # Per-function breakdown: where do the instructions actually go? Answers
 # "is the bottleneck the trig or the rotations", which decides which
 # optimisation to do first.
+# ============================================================================
+# Cycle estimate: exact dynamic OPCODE histogram, weighted by Cortex-A7
+# latencies. Answers "is this actually faster", which instruction counts
+# cannot -- an SDIV is not a MOV.
+#
+#   make cycles VARIANT=fixed_scalar
+#   make cycles VARIANT=naive_float FLOAT=--float
+# ============================================================================
+LIBM := $(wildcard /usr/lib/arm-linux-gnueabihf/libm.so.6)
+LIBC := $(wildcard /usr/lib/arm-linux-gnueabihf/libc.so.6)
+
+cycles:
+	@if [ -z "$(VARIANT)" ]; then \
+	  echo "usage: make cycles VARIANT=<name> [FLOAT=--float]"; exit 2; fi
+	@if ! command -v valgrind >/dev/null 2>&1; then \
+	  echo "ERROR: valgrind not installed"; exit 1; fi
+	@$(MAKE) -s $(BUILD)/$(VARIANT)/profile
+	@mkdir -p $(BUILD)/callgrind
+	@valgrind --tool=callgrind \
+	   --callgrind-out-file=$(BUILD)/callgrind/$(VARIANT).instr \
+	   --dump-instr=yes --collect-atstart=no \
+	   --toggle-collect=$(if $(FLOAT),qr_profiled_f32,qr_profiled) \
+	   --quiet $(BUILD)/$(VARIANT)/profile $(CG_ITERATIONS) 8 $(FLOAT) \
+	   >/dev/null 2>$(BUILD)/callgrind/$(VARIANT).instr.log
+	@echo "=== $(VARIANT)$(if $(FLOAT), (float interface),): opcode histogram over $(CG_ITERATIONS) QRs ==="
+	@python3 profiling/cycles.py $(BUILD)/callgrind/$(VARIANT).instr \
+	   $(BUILD)/$(VARIANT)/profile $(LIBM) $(LIBC)
+	@echo
+	@echo "Divide by $(CG_ITERATIONS) for per-QR figures."
+
 instr-detail:
 	@if [ -z "$(VARIANT)" ]; then echo "usage: make instr-detail VARIANT=<name>"; exit 2; fi
 	@if ! command -v valgrind >/dev/null 2>&1; then \
