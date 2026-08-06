@@ -44,13 +44,13 @@ endif
 
 WARN := -Wall -Wextra
 
-.PHONY: all test-all profile-all static-all instr-all compare clean help asm
+.PHONY: all test-all profile-all static-all instr-all instr-detail compare clean help asm
 .PHONY: $(addprefix test-,$(VARIANTS)) $(addprefix profile-,$(VARIANTS))
 
 all: test-all
 
 help:
-	@echo "targets: test-all profile-all static-all instr-all compare asm clean"
+	@echo "targets: test-all profile-all static-all instr-all instr-detail compare asm clean"
 	@echo "variants: $(VARIANTS)"
 	@echo "flagsets: (see profiling/flagsets.sh)"
 
@@ -135,6 +135,27 @@ asm:
 # deterministic, so a small sample is enough.
 # ============================================================================
 CG_ITERATIONS ?= 50
+
+# Per-function breakdown: where do the instructions actually go? Answers
+# "is the bottleneck the trig or the rotations", which decides which
+# optimisation to do first.
+instr-detail:
+	@if [ -z "$(VARIANT)" ]; then echo "usage: make instr-detail VARIANT=<name>"; exit 2; fi
+	@if ! command -v valgrind >/dev/null 2>&1; then \
+	  echo "ERROR: valgrind not installed"; exit 1; fi
+	@$(MAKE) -s $(BUILD)/$(VARIANT)/profile
+	@mkdir -p $(BUILD)/callgrind
+	@valgrind --tool=callgrind \
+	   --callgrind-out-file=$(BUILD)/callgrind/$(VARIANT).detail \
+	   --collect-atstart=no --toggle-collect=qr_decomposition --quiet \
+	   $(BUILD)/$(VARIANT)/profile $(CG_ITERATIONS) 8 >/dev/null 2>&1
+	@echo "=== $(VARIANT): instructions per function ($(CG_ITERATIONS) QRs) ==="
+	@callgrind_annotate --threshold=99 \
+	   $(BUILD)/callgrind/$(VARIANT).detail 2>/dev/null \
+	 | awk '/PROGRAM TOTALS/{t=1} t' \
+	 | head -30
+	@echo
+	@echo "Divide the per-function counts by $(CG_ITERATIONS) for per-QR figures."
 
 instr-all:
 	@if ! command -v valgrind >/dev/null 2>&1; then \
