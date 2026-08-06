@@ -135,13 +135,14 @@ mix_all() {
             else if (m ~ /^(smull|umull|smlal|umlal|smmul|smmla)$/) lmul++
             else if (m ~ /^(sdiv|udiv)$/)                          divh++
             else if (m ~ /^(smlad|smladx|smuad|smuadx|smusd|smusdx)$/) simd32++
+            else if (m ~ /^clz$/)                                  clz++
             if (base ~ /^(b|bl|bx|blx|cbz|cbnz)$/ || m ~ /^(b|bl|bx|blx)$/) br++
             if (m ~ /^(ldr|ldrb|ldrh|ldrd|ldm|str|strb|strh|strd|stm|push|pop)/) mem++
           }
           /__aeabi_idiv/ { idiv++ }
           END {
-            printf "%d %d %d %d %d %d %d %d\n", total+0, mul+0, lmul+0, divh+0,
-                   idiv+0, simd32+0, br+0, mem+0
+            printf "%d %d %d %d %d %d %d %d %d\n", total+0, mul+0, lmul+0, divh+0,
+                   idiv+0, simd32+0, br+0, mem+0, clz+0
           }' "$OUT/dis_$name.txt" > "$OUT/mix_$name.txt"
     done
 }
@@ -163,6 +164,7 @@ mix_row "SOFTWARE divide call" 5
 mix_row "SIMD32 dual-MAC"      6
 mix_row "branches"             7
 mix_row "loads/stores"         8
+mix_row "clz (normalisation)"  9
 
 echo
 echo "  KEY RESULT: compare 'hardware divide' against 'SOFTWARE divide call'."
