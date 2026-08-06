@@ -89,7 +89,7 @@ def disassemble(obj):
     else:
         sys.exit(f"ERROR: could not disassemble {obj}")
 
-    funcs, cur, base = {}, None, 0
+    funcs, absmap, cur, base = {}, {}, None, 0
     fn_re = re.compile(r"^([0-9a-f]+) <(.+)>:")
     ins_re = re.compile(r"^\s*([0-9a-f]+):\s+[0-9a-f ]+\t\s*(\S+)")
     for line in out.splitlines():
@@ -102,8 +102,10 @@ def disassemble(obj):
         if cur:
             m = ins_re.match(line)
             if m:
-                funcs[cur][int(m.group(1), 16) - base] = m.group(2)
-    return funcs
+                a = int(m.group(1), 16)
+                funcs[cur][a - base] = m.group(2)
+                absmap[a] = m.group(2)
+    return funcs, absmap
 
 
 def parse_callgrind(path):
@@ -143,7 +145,12 @@ def parse_callgrind(path):
                 ob = line[3:].split(")")[-1].strip() or ob
             elif line.startswith("fn="):
                 fn = line[3:].split(")")[-1].strip() or fn
-                last = [0] * npos
+                # Deliberately DO NOT reset the running position here.
+                # Callgrind's subposition compression is relative to the
+                # previous cost line in the file, not to the enclosing
+                # function. Resetting made addresses drift once a function
+                # began with a relative position, which showed up as ~20% of
+                # instructions "unmapped" at offsets beyond the function size.
             elif line.startswith(("cob=", "cfi=", "cfn=", "fi=", "fe=", "fl=",
                                   "events:", "version:", "creator:", "cmd:",
                                   "part:", "desc:", "summary:", "totals:")):
@@ -173,11 +180,12 @@ def main():
     cg, objs = sys.argv[1], sys.argv[2:]
 
     dis = {}
+    by_abs = {}          # absolute address -> mnemonic (works for non-PIE)
+    by_fn = {}           # function name -> (object, {offset: mnemonic})
     for o in objs:
-        dis[o] = disassemble(o)
-    # function name -> (object, offsets) for name-based matching
-    by_fn = {}
-    for o, funcs in dis.items():
+        funcs, absmap = disassemble(o)
+        dis[o] = funcs
+        by_abs.update(absmap)
         for f, offs in funcs.items():
             by_fn.setdefault(f, (o, offs))
 
@@ -199,14 +207,16 @@ def main():
     total = 0
     for ob, fn, addr, cost in rows:
         total += cost
-        entry = by_fn.get(fn)
-        if entry is None:
-            unmapped[f"{fn} [{ob.split('/')[-1]}]"] += cost
-            continue
-        _, offs = entry
-        mn = offs.get(addr - fn_base[(ob, fn)])
+        # Absolute address first (correct for non-PIE objects), then fall back
+        # to (function, offset) which survives shared-library relocation.
+        mn = by_abs.get(addr)
         if mn is None:
-            unmapped[f"{fn}+0x{addr - fn_base[(ob, fn)]:x}"] += cost
+            entry = by_fn.get(fn)
+            if entry is not None:
+                mn = entry[1].get(addr - fn_base[(ob, fn)])
+        if mn is None:
+            unmapped[f"{fn}+0x{addr - fn_base.get((ob, fn), 0):x} "
+                     f"[{ob.split('/')[-1]}]"] += cost
             continue
         hist[classify(mn)] += cost
 
