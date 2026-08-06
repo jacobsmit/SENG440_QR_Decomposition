@@ -145,7 +145,7 @@ Status legend: `[x]` done · `[~]` partial · `[ ]` not started
 
 ## 4. Code defects and cleanup
 
-- [ ] **4.1 `FIXED_MUL` overflows.** `math_utils.h:11` — `((int32_t)(a) * (int32_t)(b)) >> 11`
+- [x] **4.1 `FIXED_MUL` overflows. FIXED.** `math_utils.h:11` — `((int32_t)(a) * (int32_t)(b)) >> 11`
   multiplies in 32 bits *before* shifting.
 
   Every `FIXED_MUL` in this codebase is *coefficient × data*, where the coefficient is `c`, `s`,
@@ -202,10 +202,10 @@ Status legend: `[x]` done · `[~]` partial · `[ ]` not started
   - Practical note: the course notes' `-march=armv5` is **rejected by current gcc** ("unrecognized
     -march target"). Use `-march=armv5te`. `SMULL` is available from ARMv4 onward, so nothing is
     lost.
-- [ ] **4.2 `FIXED_DIV` overflows and has no zero guard.** `math_utils.h:12` — `((a) << 11) / (b)`
+- [x] **4.2 `FIXED_DIV` overflows. FIXED** (zero guard still only at the call site). `math_utils.h:12` — `((a) << 11) / (b)`
   overflows for `|a| > 2²⁰`. The `D == 0` case is handled in `calculate_arctan_ratio` but not in
   the macro itself.
-- [ ] **4.3 `tests/run_tests.sh` always prints "All tests passed successfully!"** regardless of the
+- [x] **4.3 `tests/run_tests.sh` now asserts and exits non-zero. FIXED.** Original text: regardless of the
   errors measured — `test_qr_accuracy.c` only prints numbers, it never asserts. Add per-test
   tolerance thresholds and a non-zero exit on failure. Lesson 100 requires a real testbench
   ("a set of input data with known output data").

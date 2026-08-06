@@ -181,17 +181,15 @@ int main(void) {
        0.05f, 0.07f, 0, NULL},
 
       /* Same matrix as the symmetric-PD case, scaled by 100 (max|A| = 600).
-         A rotation is scale-invariant, so the RELATIVE error must be the same
-         as at scale 1 -- and it is not: measured ~166% vs ~4.7%.
-         Cause: FIXED_MUL multiplies in 32 bits before shifting, so it wraps
-         once |value| exceeds 2^31/2^11 = 2^20 raw, i.e. 512.0.
-         Fix is a 64-bit intermediate (SMULL); see docs/PROJECT_TODO.md 4.1.
-         Marked expect_fail so it documents the bug without gating the suite.
-         When the fix lands this flips to XPASS -- then clear the flag. */
-      {"Large Magnitude (SPD x100) -- FIXED_MUL overflow",
+         A rotation is scale-invariant, so the RELATIVE error must match the
+         scale-1 case. This is the regression guard for the FIXED_MUL overflow:
+         with a 32-bit intermediate it read 166%, with the 64-bit intermediate
+         it reads 4.74% against 4.67% at scale 1. If this case ever regresses,
+         someone has reintroduced a 32-bit product. */
+      {"Large Magnitude (SPD x100) -- overflow regression guard",
        {550.0f, 210.0f, 50.0f, 100.0f, 210.0f, 420.0f, 110.0f, 20.0f, 50.0f,
         110.0f, 330.0f, 150.0f, 100.0f, 20.0f, 150.0f, 600.0f},
-       0.07f, 0.07f, 1, "known bug: 32-bit FIXED_MUL overflows above +/-512"},
+       0.07f, 0.07f, 0, NULL},
   };
   const int n_cases = (int)(sizeof(cases) / sizeof(cases[0]));
 

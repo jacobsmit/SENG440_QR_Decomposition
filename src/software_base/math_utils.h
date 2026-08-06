@@ -8,26 +8,54 @@
 #define FLOAT_TO_FIXED(f) ((int32_t)((f) * FIXED_SCALE))
 #define FIXED_TO_FLOAT(i) ((float)(i) / FIXED_SCALE)
 
+/* Fixed-point multiply and divide.
+ *
+ * Both compute the intermediate in 64 bits before scaling back to 32. The
+ * ANSWER always fits in 32 bits; the intermediate does not. Multiplying two
+ * Q11 values scales the result by 2048 twice, so the product is the answer
+ * times 4 million -- that overflows int32 once a stored value exceeds
+ * 2^31/2^11 = 2^20, i.e. a real value of only 512.0. Doing the multiply in
+ * 64 bits and shifting before narrowing raises that ceiling to the actual
+ * limit of the format (+/-2^20 as a real value).
+ *
+ * This costs nothing exotic on ARM: 32x32->64 is a single SMULL instruction
+ * writing a register pair, present since ARMv4. The datapath stays 32-bit.
+ */
+static inline int32_t fixed_mul(int32_t a, int32_t b) {
+  /* (int64_t)a promotes the multiply to 64 bits, so the product has room.
+     >> 11 removes the doubled scale factor. The cast back to int32_t is safe
+     because the scaled-down result always fits. */
+  return (int32_t)(((int64_t)a * b) >> 11);
+}
+
+static inline int32_t fixed_div(int32_t a, int32_t b) {
+  /* Same overflow, different shape: a << 11 blows past 32 bits once |a|
+     exceeds 2^20. Doing it in 64 bits would work, but ARM has no 64/32 divide
+     instruction, so that turns one SDIV into an __aeabi_ldiv library call.
+     Instead, shift BOTH operands down by the same amount -- the quotient a/b
+     is unchanged by scaling -- until the numerator's << 11 fits. Keeps the
+     Cortex-A7's hardware SDIV. Runs 0-3 times for realistic inputs. */
+  int32_t aa = (a < 0) ? -a : a;
+  while (aa >= (1 << 20)) {
+    a >>= 1;
+    b >>= 1;
+    aa >>= 1;
+  }
+  return (a << 11) / b;
+}
+
 /* Optional deterministic operation profiling (see profiling/op_counters.h).
-   When PROFILE_OPS is not defined this compiles to exactly the original macros;
-   when it is, the arithmetic is preserved bit-for-bit and only counted. */
+   Both builds call the same fixed_mul/fixed_div above, so the instrumented
+   build cannot drift from production arithmetic. */
 #ifdef PROFILE_OPS
 #include "../../profiling/op_counters.h"
 #define OPCOUNT(field) (g_ops.field++)
-static inline int32_t fixed_mul_counted(int32_t a, int32_t b) {
-  OPCOUNT(fixed_mul);
-  return ((int32_t)(a) * (int32_t)(b)) >> 11; /* identical to production */
-}
-static inline int32_t fixed_div_counted(int32_t a, int32_t b) {
-  OPCOUNT(fixed_div);
-  return ((a) << 11) / (b); /* identical to production */
-}
-#define FIXED_MUL(a, b) fixed_mul_counted((a), (b))
-#define FIXED_DIV(a, b) fixed_div_counted((a), (b))
+#define FIXED_MUL(a, b) (OPCOUNT(fixed_mul), fixed_mul((a), (b)))
+#define FIXED_DIV(a, b) (OPCOUNT(fixed_div), fixed_div((a), (b)))
 #else
 #define OPCOUNT(field) ((void)0)
-#define FIXED_MUL(a, b) (((int32_t)(a) * (int32_t)(b)) >> 11)
-#define FIXED_DIV(a, b) (((a) << 11) / (b))
+#define FIXED_MUL(a, b) fixed_mul((a), (b))
+#define FIXED_DIV(a, b) fixed_div((a), (b))
 #endif
 
 #define PI_OVER_2_FIXED 3217
