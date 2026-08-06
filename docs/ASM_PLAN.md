@@ -79,10 +79,14 @@ capture much of the available win, because there are **~22 trig calls per QR**
 (`calculate_arctan_ratio` 6, `arctan_fixed` 5.9, `sin_fixed` 8.2, `cos_fixed` 8.2), each paying a
 `push`/`pop` frame.
 
-- [ ] **Measure the call overhead first.** `cycles.py` now reports `stack` (push/pop/ldm/stm)
-      separately from data `load`/`store` — previously they were lumped together, which hid this.
-      Re-run `make cycles VARIANT=fixed_simd32` and read the `stack` row. That number is the ceiling
-      on what inlining can recover.
+- [x] **Call overhead measured — and it is negligible.** `stack` (push/pop/ldm/stm) is
+      **21.5 instructions per QR**, about 1 % of the 2058 total, despite ~22 trig calls. gcc is
+      already generating near-frameless leaf calls.
+
+      **So inlining will not buy performance here.** Do it because Lesson 100 step 1 requires it and
+      because the code-size trade is a reportable result — not expecting a speed-up. This is exactly
+      what the measurement was for: it stops us hand-optimising something that was never costing
+      anything.
 - [ ] Three builds of the same variant, selected by a macro: `TRIG_ROUTINE`, `TRIG_INLINE`,
       `TRIG_MACRO`. Keep one source file; do not fork the variant three ways.
 - [ ] Report instructions, cycles and code size for all three. Note the trade: inlining
@@ -127,6 +131,18 @@ Now write assembly, aimed at what remains:
       work.
 
 ---
+
+## Where the instructions actually are
+
+With `stack` ruled out, the two real targets are, per QR:
+
+| | count | what it is |
+|---|---:|---|
+| **alu** | **973** | address arithmetic, `asr #14` scaling (96), `orr` packs (48), block-scaling shifts, loop induction |
+| **load** | **462** | 96 needed by the rotations; the rest is block scaling and register spills |
+
+`alu` is the largest single class at 48.6 % of instructions. Register residency and unrolling both
+attack it directly — they remove address arithmetic and induction-variable updates, not multiplies.
 
 ## Realistic expectation
 

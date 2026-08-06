@@ -113,7 +113,7 @@ def disassemble(obj):
     return funcs, absmap
 
 
-def parse_callgrind(path):
+def parse_callgrind(path, reset_on_fn=False):
     """[(object, function, address, count)] -- self cost only.
 
     The cost line layout is declared by the file's "positions:" header. With
@@ -129,6 +129,23 @@ def parse_callgrind(path):
     npos = 1
     last = [0]
     skip_next_cost = False   # the line after calls= is inclusive call cost
+
+    # Callgrind NAME COMPRESSION: "ob=(1) /path/to/x" defines id 1, and a later
+    # bare "ob=(1)" refers back to it. Treating a bare reference as "no name,
+    # keep the previous value" attributes records to whatever object happened to
+    # be current -- which is how qr_decomposition ended up labelled libc.so.6.
+    ob_names, fn_names = {}, {}
+    ref_re = re.compile(r"^\((\d+)\)\s*(.*)$")
+
+    def resolve(body, table, current):
+        body = body.strip()
+        m = ref_re.match(body)
+        if m:
+            idx, name = m.group(1), m.group(2).strip()
+            if name:
+                table[idx] = name
+            return table.get(idx, current)
+        return body or current
 
     def advance(tok, prev):
         if tok == "*":
@@ -147,9 +164,11 @@ def parse_callgrind(path):
                 last = [0] * npos
                 continue
             if line.startswith("ob="):
-                ob = line[3:].split(")")[-1].strip() or ob
+                ob = resolve(line[3:], ob_names, ob)
             elif line.startswith("fn="):
-                fn = line[3:].split(")")[-1].strip() or fn
+                fn = resolve(line[3:], fn_names, fn)
+                if reset_on_fn:
+                    last = [0] * npos
                 # Deliberately DO NOT reset the running position here.
                 # Callgrind's subposition compression is relative to the
                 # previous cost line in the file, not to the enclosing
@@ -205,10 +224,29 @@ def main():
         for f, offs in funcs.items():
             by_fn.setdefault(norm(f), offs)
 
-    rows = parse_callgrind(cg)
+    # The callgrind format allows positions relative to the previous cost line.
+    # Whether that running position is reset at an fn= boundary is not something
+    # this tool should guess: both readings are tried and the one that resolves
+    # more instructions wins. A wrong guess showed up as ~26% "unmapped" at
+    # offsets past the end of the function.
+    def score(rs):
+        ok = 0
+        for ob_, fn_, addr_, cost_ in rs:
+            obase_ = ob_.split("/")[-1]
+            if (obase_, addr_) in by_abs:
+                ok += cost_
+        return ok
+
+    cand = [(False, parse_callgrind(cg, reset_on_fn=False)),
+            (True, parse_callgrind(cg, reset_on_fn=True))]
+    cand = [(r, rs, score(rs)) for r, rs in cand]
+    cand.sort(key=lambda t: -t[2])
+    reset_used, rows, _ = cand[0]
     if not rows:
         sys.exit(f"ERROR: no cost records parsed from {cg}. "
                  "Was it produced with --dump-instr=yes?")
+    print(f"(position interpretation: reset-at-fn={reset_used}, chosen by best "
+          f"resolution rate)\n")
 
     # First address seen per function == its entry point, so offsets are
     # load-address independent (works for shared libraries).
@@ -269,10 +307,13 @@ def main():
         print("   Supply the missing object(s) on the command line. Top offenders:")
         for k, v in sorted(unmapped.items(), key=lambda kv: -kv[1])[:8]:
             print(f"     {v:>12,}  {k}")
+        # Key off the FUNCTION name, not the object: a wrong object attribution
+        # (name-compression bug) also produces "[libc.so.6]" in these keys and
+        # would trigger a misleading tail-call diagnosis.
         libc_ish = sum(v for k, v in unmapped.items()
-                       if "libc" in k or "ld-linux" in k
-                       or any(t in k for t in ("malloc", "printf", "puts",
-                                               "memcpy", "vfprintf")))
+                       if any(t in k.split("+")[0].split(" ")[0]
+                              for t in ("malloc", "printf", "puts", "memcpy",
+                                        "vfprintf", "strlen", "memset")))
         if libc_ish > 0.5 * unmapped_total:
             print("\n   DIAGNOSIS: most unmapped work is libc startup/printf, which means")
             print("   collection was left ON outside the measured region. Usual cause: the")
