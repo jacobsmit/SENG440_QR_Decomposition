@@ -177,6 +177,25 @@ compare:
 	    "$$(echo "$$acc" | tail -1 | cut -d, -f2-)" >> $(BUILD)/ops.csv; \
 	done; \
 	echo "wrote $(BUILD)/ops.csv"; \
+	if command -v valgrind >/dev/null 2>&1; then \
+	  echo; echo ">>> exact dynamic instruction counts (callgrind, $(CG_ITERATIONS) iters)"; \
+	  if $(MAKE) -s instr-all > $(BUILD)/instr.log 2>&1; then \
+	    awk -F, 'NR==FNR{if(FNR>1)ir[$$1]=$$4; next} \
+	             FNR==1{print $$0",ir_per_qr"; next} \
+	             {print $$0","(($$1 in ir)?ir[$$1]:"n/a")}' \
+	        $(BUILD)/instr.csv $(BUILD)/ops.csv > $(BUILD)/ops_full.csv \
+	      && mv $(BUILD)/ops_full.csv $(BUILD)/ops.csv; \
+	    cat $(BUILD)/instr.csv; \
+	  else \
+	    echo "  !! callgrind FAILED -- see $(BUILD)/instr.log"; \
+	    tail -5 $(BUILD)/instr.log | sed 's/^/     /'; \
+	    status=1; \
+	  fi; \
+	else \
+	  echo; echo ">>> callgrind SKIPPED (valgrind not installed)"; \
+	fi; \
+	echo; \
+	echo ">>> combined per-variant table"; \
 	cat $(BUILD)/ops.csv; \
 	echo; \
 	if [ -n "$(ARM_CC)" ]; then \
