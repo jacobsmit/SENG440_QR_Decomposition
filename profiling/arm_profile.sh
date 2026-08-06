@@ -106,14 +106,20 @@ mix_of() {
         else if (m ~ /^(sdiv|udiv)$/)                              divh++
         else if (m ~ /^(smlad|smladx|smuad|smuadx|smusd|smusdx)$/)  simd++
         else if (m ~ /^clz$/)                                      clz++
-        else if (m ~ /^(vmul|vadd|vsub|vdiv|vmla|vcvt|vldr|vstr|vmov)/) vfp++
+        # Genuine floating-point arithmetic -- a real leak in an integer path.
+        else if (m ~ /^(vmul|vadd|vsub|vdiv|vmla|vmls|vfma|vfms|vneg|vabs|vsqrt|vcvt|vcmp)/) fparith++
+        # VFP registers used for data movement. NOT necessarily float: gcc will
+        # park 64-bit integer values (e.g. smull register pairs) in VFP double
+        # registers. Counted separately so it cannot be mistaken for a leak.
+        else if (m ~ /^(vldr|vstr|vmov|vpush|vpop|vldm|vstm)/) vfpmove++
         if (base ~ /^(b|bl|bx|blx|cbz|cbnz)$/) br++
         if (m ~ /^(ldr|ldrb|ldrh|ldrd|ldm|str|strb|strh|strd|stm|push|pop)/) mem++
       }
       /__aeabi_idiv/  { idiv++ }
       /(atan2f|cosf|sinf|sqrtf)/ { libm++ }
-      END { printf "%d %d %d %d %d %d %d %d %d %d\n",
-                   total+0,mul+0,lmul+0,divh+0,idiv+0,simd+0,clz+0,br+0,mem+0,vfp+0 }
+      END { printf "%d %d %d %d %d %d %d %d %d %d %d\n",
+                   total+0,mul+0,lmul+0,divh+0,idiv+0,simd+0,clz+0,br+0,mem+0,
+                   fparith+0,vfpmove+0 }
     ' "$1"
 }
 
@@ -151,7 +157,8 @@ for v in $VARIANTS; do
     i=1
     for label in "total instructions" "multiply (mul/mla)" "long mul (smull)" \
                  "hardware divide" "SOFTWARE idiv call" "SIMD32 dual-MAC" \
-                 "clz (normalisation)" "branches" "loads/stores" "VFP/float ops"; do
+                 "clz (normalisation)" "branches" "loads/stores" \
+                 "FP arithmetic (leak?)" "VFP reg moves (benign)"; do
         printf "%-26s" "$label"
         for fs in $FLAGSETS; do
             printf "%16s" "$(awk -v f=$i '{print $f}' "$OUT/${v}__${fs}.mix")"
@@ -159,19 +166,32 @@ for v in $VARIANTS; do
         echo
         i=$((i+1))
     done
+
+    # If genuine FP arithmetic appears in a fixed-point variant, show exactly
+    # which instructions rather than leaving it to guesswork.
+    for fs in $FLAGSETS; do
+        n=$(awk -v f=10 '{print $f}' "$OUT/${v}__${fs}.mix" 2>/dev/null)
+        if [ "${n:-0}" -gt 0 ] && [ "$v" != "naive_float" ]; then
+            echo
+            echo "  !! $fs: $n floating-point arithmetic instruction(s) in an"
+            echo "     integer variant. Offending instructions:"
+            grep -oE '\t(vmul|vadd|vsub|vdiv|vmla|vmls|vfma|vfms|vneg|vabs|vsqrt|vcvt|vcmp)[a-z0-9.]*' \
+                "$OUT/${v}__${fs}.dis" | sort | uniq -c | sed 's/^/       /'
+        fi
+    done
     echo
 done
 
 # --- machine-readable summary for `make compare` -------------------------
 CSV=build/static.csv
 {
-  echo "variant,flagset,total_instr,mul,long_mul,hw_div,soft_idiv,simd32,clz,branches,mem_ops,vfp_ops"
+  echo "variant,flagset,total_instr,mul,long_mul,hw_div,soft_idiv,simd32,clz,branches,mem_ops,fp_arith,vfp_moves"
   for v in $VARIANTS; do
     for fs in $FLAGSETS; do
       m="$OUT/${v}__${fs}.mix"
       [ -f "$m" ] || continue
-      awk -v v="$v" -v fs="$fs" '{printf "%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s\n",
-        v,fs,$1,$2,$3,$4,$5,$6,$7,$8,$9,$10}' "$m"
+      awk -v v="$v" -v fs="$fs" '{printf "%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s\n",
+        v,fs,$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11}' "$m"
     done
   done
 } > "$CSV"
@@ -196,8 +216,15 @@ cat <<'NOTE'
    bytes against ARM's 4, so Thumb usually shows more instructions while
    producing smaller code. Use `size` on the objects for byte counts.
 
- * VFP/float ops should be ~0 for every fixed-point variant. A non-zero count
-   there means floating point leaked into an integer code path.
+ * FP arithmetic should be 0 for every fixed-point variant; a non-zero count is
+   a real leak and the offending instructions are dumped above. "VFP reg moves"
+   is NOT a leak -- gcc parks 64-bit integer values (smull register pairs) in
+   VFP double registers, which is legitimate.
+
+ * DO NOT compare naive_float's total against a fixed variant's and call it a
+   speed-up. naive_float looks small because its real work is inside libm --
+   atan2f/cosf/sinf are hundreds of instructions each, called 18 times per QR,
+   and none of that is in this module. Same caveat as __aeabi_idiv above.
 
  Artifacts: build/static/*.dis (disassembly), *.mix (raw classifier output)
 ============================================================
