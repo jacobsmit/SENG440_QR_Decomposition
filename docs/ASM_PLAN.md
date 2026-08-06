@@ -95,7 +95,7 @@ capture much of the available win, because there are **~22 trig calls per QR**
 ### Step 2 — let the compiler unroll before you write assembly (TODO 2.3)
 
 `MATRIX_SIZE` is 4 and known at compile time, yet gcc keeps a 4-iteration loop with `cmp`/`bne` —
-that is the 8.8 % branch share. Try, in order:
+that is the 8.1 % of instructions spent on loop control. Try, in order:
 
 - [ ] `#pragma GCC unroll 4` on the rotation loops
 - [ ] `-funroll-loops` as a flag set in `flagsets.sh`
@@ -130,7 +130,7 @@ Now write assembly, aimed at what remains:
 
 ## Realistic expectation
 
-Given arithmetic is 11 % of cycles and gcc's inner loop is already good, the plausible gain from
+Given arithmetic is 6 % of *instructions* and gcc's inner loop is already good, the plausible gain from
 Step 3 is **1.2–1.4× on top of SIMD32**, coming from loads and loop control, not multiplies. Steps 1
 and 2 may deliver a chunk of that for far less effort.
 
