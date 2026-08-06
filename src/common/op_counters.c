@@ -1,5 +1,4 @@
 #include "op_counters.h"
-#include "cost_model.h"
 #include <stdio.h>
 
 op_core_t g_core;
@@ -58,21 +57,4 @@ void ops_report(const char *variant, const char *label, long normalise_by) {
     if (e->givensq_calls) row("GIVENSQ instructions", e->givensq_calls, normalise_by);
   }
 
-  /* Modelled cost. Weights are shared by every variant (cost_model.h) so the
-     comparison is apples to apples. They are a MODEL, not a measurement. */
-  double cyc = (double)c->mul * COST_MUL + (double)c->mac * COST_MAC +
-               (double)c->divide * COST_DIV_HW +
-               (double)c->shift_add * COST_SHIFT_ADD +
-               (double)c->decisions * COST_BRANCH;
-  double cyc_nodiv = cyc - (double)c->divide * COST_DIV_HW +
-                     (double)c->divide * COST_DIV_SOFT;
-  double libm = (double)e->libm_calls * COST_LIBM_TRANSCENDENTAL;
-
-  printf("\n  --- modelled cost (PLACEHOLDER weights, see cost_model.h) ---\n");
-  printf("  %-40s %12.1f\n", "cycles/QR, hardware SDIV build",
-         (cyc + libm) / normalise_by);
-  printf("  %-40s %12.1f\n", "cycles/QR, no-SDIV build",
-         (cyc_nodiv + libm) / normalise_by);
-  printf("  Counted operations only. Loads/stores and loop overhead are NOT\n");
-  printf("  included -- take those from the static analysis in arm_profile.sh.\n");
 }

@@ -90,23 +90,16 @@ static inline int32_t givensq(int32_t opposite, int32_t adjacent) {
 #endif
 
 /*
- * NOTE -- an edge case the spec and the implementation currently disagree on.
+ * KNOWN SPEC MISMATCH -- settle before writing the VHDL.
  *
- * docs/NEW_INSTRUCTION_PLAN.md says (opposite == 0, adjacent == 0) should give
- * an identity rotation (c = 16384, s = 0). The existing software does not:
- * calculate_arctan_ratio(0, 0) takes the D == 0 branch and returns +pi/2, so
- * c = 0 and s = 16384 -- a 90-degree rotation.
+ * docs/NEW_INSTRUCTION_PLAN.md says (opposite==0, adjacent==0) should give an
+ * identity rotation. The software does not: calculate_arctan_ratio(0,0) takes
+ * the D==0 branch and returns +pi/2, giving a 90-degree rotation instead.
  *
- * The reference model deliberately reproduces the SOFTWARE behaviour, not the
- * spec, so that fixed_asip is bit-identical to fixed_simd32 and any difference
- * in the accuracy suite is a real bug rather than a definitional one.
- *
- * It is harmless (a 90-degree rotation of two rows is still orthogonal, and
- * R[i][j] is forced to zero afterwards anyway) but it is wasted work, and the
- * HARDWARE spec should be settled before the VHDL is written. Decide, then make
- * the C model, the microcode and the VHDL all match whichever is chosen.
- * Measured frequency: the divide-by-zero guard fires 0.06 times per QR, so this
- * path is rare -- which is also why it has gone unnoticed.
+ * The reference model reproduces the SOFTWARE behaviour so fixed_asip stays
+ * bit-identical to fixed_simd32. It is harmless (still orthogonal, and R[i][j]
+ * is zeroed afterwards) and rare -- the guard fires 0.06 times per QR -- but the
+ * C model, the microcode and the VHDL must all agree on whichever is chosen.
  */
 
 #endif /* GIVENSQ_H */

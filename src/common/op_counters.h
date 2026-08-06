@@ -4,61 +4,36 @@
 /*
  * Deterministic operation counters, shared by every variant.
  *
- * WHY NOT WALL-CLOCK TIME:
- *   The target is a Cortex-A7 emulated by QEMU (docs/TARGET_PLATFORM.md).
- *   QEMU's TCG translates ARM basic blocks to host code and runs them at host
- *   speed -- no pipeline model, no cache model, no cycle accounting. So
- *   clock() measures the HOST. Counts of architecturally visible events are
- *   properties of the program, exact and host-independent, so they are a
- *   valid basis for comparing variants.
+ * QEMU has no timing model, so wall-clock time here would measure the host.
+ * These counts are exact and host-independent instead.
  *
- * CORE vs EXTRA:
- *   The core counters mean the same thing in every variant, so they can go in
- *   one comparison table: CORDIC reports mul=0, divide=0, shift_add=large,
- *   while the scalar variant reports mul=210, divide=6, shift_add=0. That
- *   explains *why* one is faster, not merely that it is.
- *   Extras are variant-specific detail printed separately.
+ * Core counters mean the same thing in every variant, so they go in one
+ * comparison table (CORDIC would show mul=0, shift_add=large; the scalar
+ * variant shows mul=210, shift_add=0). Extras are variant-specific detail.
  *
- * NOT COUNTED HERE:
- *   Loads and stores. The compiler decides those, so a C-level counter would
- *   be fiction. They come from the static disassembly analysis in
- *   profiling/arm_profile.sh instead.
+ * Loads and stores are NOT counted here -- the compiler decides those, so a
+ * C-level counter would be fiction. They come from the disassembly analysis in
+ * profiling/arm_profile.sh and profiling/cycles.py.
  */
 
 #include <stdint.h>
 
 typedef struct {
-  /* --- core: comparable across ALL variants --- */
-  long mul;        /* 32x32 multiplies                                  */
-  long mac;        /* fused multiply-accumulate (one SMLAD counts as 1) */
-  long divide;     /* divisions of any kind                             */
-  long shift_add;  /* shift-and-add operations -- CORDIC's currency     */
-  long decisions;  /* data-dependent branches taken                     */
-
-  /* --- algorithm level: identical meaning in every variant --- */
-  long rotations;  /* Givens rotations applied (row + column)           */
-  long qr_calls;   /* qr_decomposition() invocations                    */
+  long mul;       /* 32x32 multiplies                                  */
+  long mac;       /* fused multiply-accumulate (one SMLAD counts as 1) */
+  long divide;
+  long shift_add; /* CORDIC's currency                                 */
+  long decisions; /* data-dependent branches taken                     */
+  long rotations; /* Givens rotations applied (row + column)           */
+  long qr_calls;
 } op_core_t;
 
 typedef struct {
-  /* piecewise-linear trig (fixed_scalar, fixed_simd32, fixed_asm) */
-  long call_arctan;
-  long call_sin;
-  long call_cos;
-  long call_atan2;
-  long pwl_seg1;
-  long pwl_seg2;
-  long angle_folds;
-  long atan2_reciprocal;
-  long div_by_zero;
-
-  /* CORDIC */
+  /* piecewise-linear trig */
+  long call_arctan, call_sin, call_cos, call_atan2;
+  long pwl_seg1, pwl_seg2, angle_folds, atan2_reciprocal, div_by_zero;
   long cordic_iterations;
-
-  /* naive float baseline: libm transcendental calls */
-  long libm_calls;
-
-  /* custom instruction */
+  long libm_calls;     /* naive_float: libm transcendental calls */
   long givensq_calls;
 } op_extra_t;
 

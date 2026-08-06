@@ -1,22 +1,31 @@
 /*
  * Variant: fixed_asip
  *
- * fixed_simd32 with the angle-and-coefficient computation replaced by a single
- * custom instruction, GIVENSQ (src/common/givensq.h).
+ * fixed_simd32 with the angle and coefficients replaced by one custom
+ * instruction, GIVENSQ (src/common/givensq.h). After SIMD32 fixed the rotations
+ * the trig became dominant -- 910 of 2058 instructions per QR -- so the Amdahl
+ * ceiling for replacing it is 1.79x.
  *
- * WHY THIS OPERATION: after SIMD32 fixed the rotations, the trig became the
- * dominant cost -- 910 of 2058 instructions per QR, 44.2 %. So the Amdahl
- * ceiling for replacing it is 1/(1 - 0.442) = 1.79x, and it went UP as a result
- * of the previous optimisation rather than down.
+ * GIVENSQ returns c and s packed as two halves, forced by ARM's one-result
+ * limit, which is exactly the operand layout SMLAD wants: zero repacking.
  *
- * WHY IT COMPOSES: GIVENSQ returns c and s packed as two 16-bit halves, forced
- * by ARM's one-result limit. That is precisely the operand layout SMLAD/SMUSDX
- * want, so the result feeds the rotation with no repacking at all.
+ * The default build evaluates GIVENSQ with the C reference model and is
+ * bit-identical to fixed_simd32. -DUSE_GIVENSQ_ASM emits the real instruction
+ * and compiles only -- see `make asip-asm`.
  *
- * TWO BUILDS:
- *   default            GIVENSQ evaluated by the C reference model. Links, runs,
- *                      accuracy-tested. Should be BIT-IDENTICAL to fixed_simd32.
- *   -DUSE_GIVENSQ_ASM  real inline assembly. Compile-only; see `make asip-asm`.
+ * Rotations below are SIMD32 dual-MAC. With coefficients packed as cs = (s:c) and data as
+ * t = (ti:tj), one pair of instructions produces both outputs of a Givens
+ * rotation from the same two registers:
+ *     SMLAD (cs, t) = cs.lo*t.lo + cs.hi*t.hi = c*tj + s*ti  -> row_j
+ *     SMUSDX(cs, t) = cs.lo*t.hi - cs.hi*t.lo = c*ti - s*tj  -> row_i
+ *
+ * gcc will not generate these from scalar C, so the ACLE intrinsics are needed.
+ * That drops the rotation inner loop from 20 instructions to 11: the Q11 path
+ * spent 8 of its 20 on lsr/orr reassembling 64-bit smull products, and SMLAD
+ * produces a 32-bit result from 16-bit operands directly.
+ *
+ * The cost: SMLAD reads signed 16-bit halves, but a 12-bit input at Q11 needs
+ * 23 bits. Hence the block scaling below.
  */
 
 #include "../../common/givensq.h"
@@ -31,8 +40,12 @@
 
 const char *const QR_VARIANT_NAME = "fixed_asip";
 
-/* Same SIMD32 dual-MAC primitives as fixed_simd32. The portable branch is a
-   bit-exact emulation so the variant can be validated off-target. */
+/* Coefficient format comes from the instruction definition. */
+#define COEFF_BITS GIVENSQ_Q
+
+/* Dual-MAC primitives. The portable branch is a bit-exact emulation (signed
+   16x16 products summed in 32 bits) so the variant can be validated off-target;
+   define SIMD32_PORTABLE to force it. */
 #if defined(__ARM_FEATURE_SIMD32) && !defined(SIMD32_PORTABLE)
 #include <arm_acle.h>
 #define DUAL_MAC(cs, t) __smlad((cs), (t), 0)
@@ -52,13 +65,17 @@ static inline int32_t dual_subx_emul(int32_t rn, int32_t rm) {
 #define DUAL_SUBX(cs, t) dual_subx_emul((cs), (t))
 #endif
 
+/* result.hi = hi, result.lo = lo */
 static inline int32_t pack16(int16_t hi, int16_t lo) {
   return (int32_t)(((uint32_t)(uint16_t)hi << 16) | (uint32_t)(uint16_t)lo);
 }
 
-/* Block scaling: identical to fixed_simd32. Scale so max|A| lands near 2^13,
-   leaving 2 bits for the growth a rotation causes. Q needs no unscaling, and
-   the angle is unaffected because only the ratio N/D matters. */
+/* Block scaling: shift the whole matrix so max|A| lands near 2^13. Uses the full
+   16-bit range whatever the input magnitude, leaving 2 bits for the growth a
+   rotation causes; a fixed Q format would waste precision on large inputs and
+   destroy it on small ones. Q needs no unscaling (dimensionless), and the angle
+   is unaffected because only the ratio N/D matters -- so trig_pwl is reused
+   unchanged. Positive shift scales down, negative scales up. */
 static int block_shift(const int32_t *A) {
   int32_t maxv = 0;
   for (int i = 0; i < MATRIX_ELEMENTS; i++) {
@@ -81,11 +98,14 @@ static void rotate_rows(int16_t *R, int32_t cs, int i, int j) {
   int16_t *row_i = &R[i * MATRIX_SIZE];
   int16_t *row_j = &R[j * MATRIX_SIZE];
   for (int k = 0; k < MATRIX_SIZE; k++) {
+    /* row_i[k] and row_j[k] are in different rows, so never adjacent -- they
+       must be packed each iteration. gcc does it with one orr plus a free
+       barrel shift. */
     int32_t t = pack16(row_i[k], row_j[k]);
     OPC(mac);
     OPC(mac);
-    row_j[k] = (int16_t)(DUAL_MAC(cs, t) >> GIVENSQ_Q);
-    row_i[k] = (int16_t)(DUAL_SUBX(cs, t) >> GIVENSQ_Q);
+    row_j[k] = (int16_t)(DUAL_MAC(cs, t) >> COEFF_BITS);
+    row_i[k] = (int16_t)(DUAL_SUBX(cs, t) >> COEFF_BITS);
   }
 }
 
@@ -96,8 +116,8 @@ static void rotate_cols(int16_t *Q, int32_t cs, int i, int j) {
     int32_t t = pack16(base[i], base[j]);
     OPC(mac);
     OPC(mac);
-    base[j] = (int16_t)(DUAL_MAC(cs, t) >> GIVENSQ_Q);
-    base[i] = (int16_t)(DUAL_SUBX(cs, t) >> GIVENSQ_Q);
+    base[j] = (int16_t)(DUAL_MAC(cs, t) >> COEFF_BITS);
+    base[i] = (int16_t)(DUAL_SUBX(cs, t) >> COEFF_BITS);
   }
 }
 
@@ -106,20 +126,17 @@ void qr_decomposition(const int32_t *A, int32_t *Q, int32_t *R) {
 
   const int sh = block_shift(A);
 
-  int16_t Rs[MATRIX_ELEMENTS];
-  int16_t Qs[MATRIX_ELEMENTS];
+  int16_t Rs[MATRIX_ELEMENTS], Qs[MATRIX_ELEMENTS];
   for (int i = 0; i < MATRIX_ELEMENTS; i++) Rs[i] = scale_down(A[i], sh);
   for (int i = 0; i < MATRIX_SIZE; i++)
     for (int j = 0; j < MATRIX_SIZE; j++)
-      Qs[i * MATRIX_SIZE + j] = (i == j) ? (1 << GIVENSQ_Q) : 0;
+      Qs[i * MATRIX_SIZE + j] = (i == j) ? (1 << COEFF_BITS) : 0;
 
   for (int j = 0; j < MATRIX_SIZE; j++) {
     for (int i = j + 1; i < MATRIX_SIZE; i++) {
       int32_t opposite = Rs[i * MATRIX_SIZE + j];
       int32_t adjacent = Rs[j * MATRIX_SIZE + j];
 
-      /* ONE instruction replaces calculate_arctan_ratio + cos_fixed +
-         sin_fixed, and its result is already in SMLAD's operand format. */
       OPX(givensq_calls);
       int32_t cs = givensq(opposite, adjacent);
 
@@ -131,5 +148,5 @@ void qr_decomposition(const int32_t *A, int32_t *Q, int32_t *R) {
 
   for (int i = 0; i < MATRIX_ELEMENTS; i++) R[i] = scale_up(Rs[i], sh);
   for (int i = 0; i < MATRIX_ELEMENTS; i++)
-    Q[i] = (int32_t)Qs[i] >> (GIVENSQ_Q - FIXED_FRAC_BITS);
+    Q[i] = (int32_t)Qs[i] >> (COEFF_BITS - FIXED_FRAC_BITS);
 }

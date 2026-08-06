@@ -1,19 +1,14 @@
 /*
- * Accuracy regression suite -- variant agnostic.
+ * Accuracy regression suite -- variant agnostic. Built once per variant so every
+ * implementation is held to the same invariants on the same data.
  *
- * Built once per variant and linked against whichever qr.c is under test, so
- * every implementation is held to the same invariants on the same data.
+ * Exits non-zero if any invariant is outside tolerance: the optimisation work
+ * changes the arithmetic, and without assertions those changes can destroy
+ * correctness while the suite still reports success.
  *
- * This is a REGRESSION test: every case has an explicit tolerance and the
- * program exits non-zero if any invariant is violated. The optimisation work
- * ahead (CORDIC, SIMD32, hand assembly, a custom instruction) all changes the
- * arithmetic; without assertions those changes can destroy correctness while
- * the suite still reports success.
- *
- * Tolerances are ~1.5x the measured baseline of the fixed_scalar variant, so
- * ordinary numerical jitter passes but a real regression fails. A variant with
- * genuinely different error characteristics (CORDIC, or the naive float
- * baseline) may need its own numbers -- record them, do not just widen these.
+ * Tolerances are ~1.5x the measured fixed_scalar baseline. A variant with
+ * genuinely different error characteristics may need its own -- record them,
+ * do not just widen these.
  */
 
 #include "../src/common/matrix_f32.h"
@@ -22,12 +17,9 @@
 #include <stdio.h>
 #include <string.h>
 
-/* Q is orthogonal, so every entry must lie in [-1, 1]. A little slack absorbs
-   fixed-point rounding.
-   NOTE: a sanity check on Q only -- NOT an overflow detector. Measured: when
-   FIXED_MUL overflows, the corruption lands in R (the data path) while Q stays
-   bounded, because Q is built from c/s which never exceed 1.0. Overflow is
-   caught by the RELATIVE reconstruction check instead. */
+/* Q is orthogonal so entries lie in [-1, 1]; slack absorbs rounding. A sanity
+   check on Q only, NOT an overflow detector -- overflow corrupts R while Q stays
+   bounded, so the relative reconstruction check is what catches it. */
 #define Q_ENTRY_LIMIT 1.05f
 
 /* Worst values seen across every case, for the --csv summary that feeds the
@@ -58,19 +50,11 @@ typedef struct {
   const char *note;
 } test_case_t;
 
-/* --- Randomised integer matrices ---------------------------------------
- *
- * The hand-written cases are not enough on their own. A broken FIXED_DIV was
- * measured at ~124% relative error on random matrices while all four fixed
- * cases still passed -- their particular values never hit the overflow path.
- * Fixed test data is lucky, not representative.
- *
- * These also satisfy the spec requirement for "a square matrix of integers
- * (12-bit wordlength)": the mag=2047 sweep is exactly that.
- *
- * Plain LCG with a fixed seed, so the sequence is identical on every host and
- * every run -- a failure here is always reproducible.
- */
+/* Randomised integer matrices. The hand-written cases are not enough: a broken
+   FIXED_DIV once measured ~124% relative error on random matrices while all four
+   fixed cases passed, because their values never hit the overflow path. The
+   mag=2047 sweep also satisfies the spec's "square matrix of integers (12-bit
+   wordlength)". Fixed seed, so failures are reproducible. */
 
 static uint32_t rng_state;
 
@@ -237,12 +221,9 @@ int main(int argc, char **argv) {
         -3.3f, -1.5f, -1.0f, 0.2f, -1.5f, -6.0f},
        0.05f, 0.07f, 0, NULL},
 
-      /* The symmetric-PD case scaled by 100 (max|A| = 600). A rotation is
-         scale-invariant, so the RELATIVE error must match the scale-1 case.
-         Regression guard for the FIXED_MUL overflow: with a 32-bit
-         intermediate it read 166%, with the 64-bit intermediate 4.74% against
-         4.67% at scale 1. If this regresses, someone reintroduced a 32-bit
-         product. */
+      /* Symmetric-PD scaled by 100. A rotation is scale-invariant, so the
+         relative error must match the scale-1 case. Guards the FIXED_MUL
+         overflow: 166% with a 32-bit intermediate, 4.74% with 64-bit. */
       {"Large Magnitude (SPD x100) -- overflow regression guard",
        {550.0f, 210.0f, 50.0f, 100.0f, 210.0f, 420.0f, 110.0f, 20.0f, 50.0f,
         110.0f, 330.0f, 150.0f, 100.0f, 20.0f, 150.0f, 600.0f},

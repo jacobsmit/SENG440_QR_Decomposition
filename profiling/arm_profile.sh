@@ -1,19 +1,11 @@
 #!/bin/bash
-# ============================================================================
-# Static ARM analysis: instruction counts and instruction mix, per variant,
-# per compiler flag set.
+# Static ARM analysis: instruction counts and instruction mix, per variant, per
+# compiler flag set. Dynamic counts come from `make profile-all` and
+# `make cycles`. Wall-clock time is never reported -- QEMU has no timing model.
 #
-# This is the half of profiling that the Makefile cannot do conveniently
-# (multi-flagset objdump parsing). Dynamic operation counts and accuracy come
-# from `make profile-all` and `make test-all`.
-#
-# It deliberately does NOT report wall-clock time. QEMU's TCG has no pipeline,
-# cache or cycle model, so seconds measured in the guest describe the host
-# machine, not the Cortex-A7 (docs/TARGET_PLATFORM.md).
-#
-# Usage:  make static-all
-#     or: ./profiling/arm_profile.sh            (from the repo root or here)
-# ============================================================================
+# Usage: make static-all
+set -u
+
 set -u
 
 cd "$(dirname "$0")/.."   # repo root

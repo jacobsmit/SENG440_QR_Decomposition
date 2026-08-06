@@ -1,24 +1,11 @@
 #!/bin/bash
-# ============================================================================
-# Exact dynamic instruction count per QR decomposition, via callgrind.
+# Exact dynamic instruction count per QR, via callgrind. Feeds ops.csv.
+# Only instructions inside qr_profiled are collected, so the RNG, printf and
+# harness scaffolding are excluded.
 #
-# THIS is the metric that answers "did the optimisation work?" for every kind
-# of change -- including hand-written assembly and loop unrolling, which alter
-# the instruction stream without changing operation counts at all, and are
-# therefore invisible in ops.csv.
-#
-# Valid under QEMU: callgrind counts instructions actually executed, which is a
-# property of the program and the ISA, not of the emulator. (Cycle counts and
-# cache statistics are NOT valid -- QEMU has no pipeline or cache model, and
-# cachegrind would be modelling a hypothetical cache, not the A7's.)
-#
-# Only instructions executed INSIDE qr_decomposition are collected
-# (--collect-atstart=no --toggle-collect), so the RNG, printf and harness
-# scaffolding are excluded.
-#
-# Usage: callgrind_count.sh <variant> [iterations]
-#        prints:  variant,cg_iterations,ir_total,ir_per_qr
-# ============================================================================
+# Usage: callgrind_count.sh <variant> [iterations] [--float]
+set -u
+
 set -u
 
 cd "$(dirname "$0")/.."

@@ -1,30 +1,18 @@
 #!/usr/bin/env python3
-"""
-Dynamic opcode histogram and cycle estimate.
+"""Dynamic opcode histogram and cycle estimate.
 
-WHY THIS EXISTS
-    Instruction counts treat an SDIV and a MOV as equal. They are not. This
-    turns callgrind's per-instruction execution counts into a histogram of
-    which *opcodes* actually executed, then weights them by Cortex-A7
-    latencies to produce a cycle estimate.
+Instruction counts treat an SDIV and a MOV as equal; they are not. This turns
+callgrind's per-instruction execution counts into a histogram of which opcodes
+actually ran, then weights them by Cortex-A7 latencies.
 
-    Cycles cannot be MEASURED on this target -- QEMU has no timing model and
-    the emulated PMU is fiction. Computing them from exact opcode counts is
-    what the course asks for ("computed manually, since no simulator is yet
-    available", Lesson 100). A weighted sum is defensible here specifically
-    because the Cortex-A7 is in-order.
+Cycles cannot be MEASURED here -- QEMU has no timing model -- so they are
+computed from exact opcode counts, which is what the course asks for. A weighted
+sum is defensible because the A7 is in-order.
 
-HOW IT WORKS
-    callgrind --dump-instr=yes records an execution count per instruction
-    address. Addresses are matched to mnemonics by (function name, offset from
-    function start) rather than absolute address, so it works for shared
-    libraries (libm) regardless of load address.
+Addresses are matched by (object, address), falling back to (function, offset)
+so shared libraries work regardless of load address.
 
-USAGE
-    cycles.py <callgrind.out> <binary> [extra objects...]
-
-    Any object appearing in the callgrind file that is not supplied on the
-    command line is reported as UNMAPPED rather than silently dropped.
+Usage: cycles.py <callgrind.out> <binary> [extra objects...]
 """
 
 import re
