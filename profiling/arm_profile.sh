@@ -40,15 +40,20 @@ echo
 
 # --- flag sets to compare --------------------------------------------------
 # Names must not contain spaces (used as filenames).
-# NOTE on armv5te: Debian's armhf gcc defaults to -mfloat-abi=hard, and ARMv5
-# has no FPU, so the build fails unless soft-float is requested explicitly.
-# This flagset exists to model "an embedded core with no hardware divider",
-# which is what the course notes' -march=armv5 assumes.
+# Modelling "a core with no hardware divider":
+#   armv7-a has no integer-divide extension, so -march=armv7-a already gives a
+#   __aeabi_idiv call instead of SDIV. That is the no-divider comparison, and it
+#   builds cleanly. It is also exactly what Debian's default armhf baseline is.
+#
+#   Do NOT reach for -march=armv5te here. Debian armhf is a hard-float-only
+#   port: ARMv5 has no FPU, and -mfloat-abi=soft then fails because glibc ships
+#   only gnu/stubs-hard.h (gnu/stubs.h picks stubs-soft.h when __ARM_PCS_VFP is
+#   unset). If you want a genuine ARMv5 comparison for the course notes, build
+#   it bare-metal with arm-none-eabi-gcc on the host instead.
 FLAGSETS=(
-  "debian-default:-O2 -marm"
+  "armv7a-nodiv:-O2 -marm -march=armv7-a"
   "cortex-a7:-O2 -marm -mcpu=cortex-a7"
   "cortex-a7-O3:-O3 -marm -mcpu=cortex-a7"
-  "armv5te-nodiv:-O2 -marm -march=armv5te -mfloat-abi=soft"
   "cortex-a7-thumb:-O2 -mthumb -mcpu=cortex-a7"
 )
 
@@ -156,9 +161,17 @@ mix_row "loads/stores"         8
 
 echo
 echo "  KEY RESULT: compare 'hardware divide' against 'SOFTWARE divide call'."
-echo "  The Cortex-A7 HAS SDIV, but Debian's default armhf baseline does not"
-echo "  enable it -- so the default build pays a libgcc call anyway."
-echo "  This is a compiler-flag result, not a hardware result. Report both."
+echo "  The Cortex-A7 HAS SDIV, but the armv7-a baseline (which is also Debian's"
+echo "  default armhf baseline) does not enable it -- so a default build pays a"
+echo "  libgcc call anyway. Compiler-flag result, not a hardware result."
+echo
+echo "  CAVEAT -- these static counts UNDERSTATE the divider cost. A call to"
+echo "  __aeabi_idiv is only 1-2 instructions at the call site; the expensive"
+echo "  part is the libgcc routine body, which lives in another module and is"
+echo "  NOT counted here. That is why calculate_arctan_ratio differs by only a"
+echo "  couple of instructions between the two builds while the real cost gap is"
+echo "  much larger. The divider penalty shows up in PART 3's modelled cost, and"
+echo "  properly belongs in a hand cycle-count from the Cortex-A7 TRM."
 
 # ============================================================================
 # Part 3 -- dynamic operation counts (deterministic)
