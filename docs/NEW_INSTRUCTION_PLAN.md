@@ -124,14 +124,14 @@ GIVENSQ  Rd, Rn, Rm
   ASIP extension and SIMD32 compose rather than compete.
 
   Edge cases (must be defined, and must match across C / FW / VHDL):
-    adjacent == 0, opposite != 0  -> theta = +/- pi/2  -> c = 0, s = +/-2048
-    adjacent == 0, opposite == 0  -> identity rotation -> c = 2048, s = 0
+    adjacent == 0, opposite != 0  -> theta = +/- pi/2  -> c = 0, s = +/-16384
+    adjacent == 0, opposite == 0  -> identity rotation -> c = 16384, s = 0
   Flags: unaffected.  Latency: (fill in from simulation).
 ```
 
 - [ ] Decide and document the packing layout, the Q format, and every edge case.
-- [ ] Note that `c = 1.0` is `2048`, which needs 12 bits + sign — confirm it fits the 16-bit field
-      (it does; range −2048..+2048).
+- [ ] Note that `c = 1.0` is `16384` in Q14, which needs 15 bits + sign — confirm it fits the
+      signed 16-bit field (it does; range −16384..+16384 against a limit of ±32767).
 
 ---
 
@@ -143,15 +143,21 @@ Before any assembly, write a plain C function that computes exactly what the har
 compute, including the cheap slopes and the packing:
 
 ```c
-/* Bit-exact software model of the GIVENSQ instruction. */
+/* Bit-exact software model of the GIVENSQ instruction.
+   Layout matches the spec above and therefore SMLAD's operand format:
+   result.hi = s, result.lo = c, both Q14. */
 static inline int32_t givensq_ref(int32_t opposite, int32_t adjacent) {
-    int32_t angle = calculate_arctan_ratio(opposite, adjacent);
-    int32_t c = cos_fixed(angle);
-    int32_t s = sin_fixed(angle);
-    return ((c & 0xFFFF) << 16) | (s & 0xFFFF);
+    int32_t angle = calculate_arctan_ratio(opposite, adjacent);   /* Q11 angle */
+    int32_t c14 = cos_fixed(angle) << 3;   /* Q11 -> Q14 */
+    int32_t s14 = sin_fixed(angle) << 3;
+    return (int32_t)(((uint32_t)(uint16_t)s14 << 16) | (uint32_t)(uint16_t)c14);
 }
-static inline int32_t givensq_c(int32_t p) { return (int16_t)(p >> 16); }
-static inline int32_t givensq_s(int32_t p) { return (int16_t)(p & 0xFFFF); }
+static inline int32_t givensq_c(int32_t p) { return (int16_t)(p & 0xFFFF); }
+static inline int32_t givensq_s(int32_t p) { return (int16_t)(p >> 16); }
+
+/* Feeds fixed_simd32's rotation directly -- the packed value IS the cs operand:
+       row_j[k] = __smlad (cs, t, 0) >> 14;
+       row_i[k] = __smusdx(cs, t)    >> 14;   */
 ```
 
 This model is the **single source of truth**: it generates the test vectors for the C build, the
