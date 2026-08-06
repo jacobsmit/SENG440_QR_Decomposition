@@ -79,7 +79,7 @@ Status legend: `[x]` done · `[~]` partial · `[ ]` not started
 
 ## 2. Software work still missing (Lesson 100 design flow)
 
-- [ ] **2.1 The naive floating-point baseline does not exist.** Draft report §2.3 describes a
+- [x] **2.1 The naive floating-point baseline. DONE** — `src/variants/naive_float/qr.c`, float + libm (atan2f/cosf/sinf), deliberately mirroring the fixed_scalar structure so the comparison isolates float+libm vs fixed+PWL. Original text: Draft report §2.3 describes a
   baseline using floats and `math.h` (`sqrt`, `atan`) — it is not in the repo and never was
   (checked the full git history). Every speedup number in the report needs it. Write
   `src/software_naive/` with the textbook float Givens implementation and measure it.

@@ -5,6 +5,7 @@
 *.o
 *.s
 _profile_out/
+build/
 qr_demo
 test_qr_accuracy
 profile_components

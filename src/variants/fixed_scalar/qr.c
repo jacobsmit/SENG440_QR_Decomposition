@@ -1,10 +1,26 @@
-#include "qr_decomp.h"
-#include "math_utils.h"
+/*
+ * Variant: fixed_scalar
+ *
+ * Q11 fixed-point Givens rotations with piecewise-linear trig. This is the
+ * reference optimised implementation that later variants are compared to.
+ */
 
-// Apply a Givens rotation to rows i and j of matrix A (mutates A)
+#include "../../common/qr_iface.h"
+#include "../../common/trig_pwl.h"
+
+#ifdef PROFILE_OPS
+#include "../../common/op_counters.h"
+#else
+#define OPC(f) ((void)0)
+#define OPX(f) ((void)0)
+#endif
+
+const char *const QR_VARIANT_NAME = "fixed_scalar";
+
+/* Apply a Givens rotation to rows i and j of A (mutates A). */
 static void apply_givens_rotation_A(int32_t *A, int32_t c, int32_t s, int32_t i,
                                     int32_t j) {
-  OPCOUNT(rotations_row);
+  OPC(rotations);
   int32_t *row_i = &A[i * MATRIX_SIZE];
   int32_t *row_j = &A[j * MATRIX_SIZE];
   int32_t temp_i, temp_j;
@@ -17,10 +33,10 @@ static void apply_givens_rotation_A(int32_t *A, int32_t c, int32_t s, int32_t i,
   }
 }
 
-// Apply a Givens rotation to columns i and j of matrix Q (mutates Q)
+/* Apply a Givens rotation to columns i and j of Q (mutates Q). */
 static void apply_givens_rotation_Q(int32_t *Q, int32_t c, int32_t s, int32_t i,
                                     int32_t j) {
-  OPCOUNT(rotations_col);
+  OPC(rotations);
   int32_t *col_i = &Q[i];
   int32_t *col_j = &Q[j];
   int32_t temp_i, temp_j;
@@ -36,33 +52,23 @@ static void apply_givens_rotation_Q(int32_t *Q, int32_t c, int32_t s, int32_t i,
 }
 
 void qr_decomposition(const int32_t *A, int32_t *Q, int32_t *R) {
-  OPCOUNT(qr_calls);
-  // Initialize Q as Identity
+  OPC(qr_calls);
+
   init_identity(Q);
+  for (int i = 0; i < MATRIX_ELEMENTS; i++) R[i] = A[i];
 
-  // Initialize R as a copy of A
-  for (int i = 0; i < MATRIX_ELEMENTS; i++) {
-    R[i] = A[i];
-  }
-
-  // Sequentially eliminate elements below the diagonal using Givens rotations
+  /* Eliminate below the diagonal with Givens rotations. */
   for (int j = 0; j < MATRIX_SIZE; j++) {
     for (int i = j + 1; i < MATRIX_SIZE; i++) {
       int32_t opposite = MAT_GET(R, i, j);
       int32_t adjacent = MAT_GET(R, j, j);
 
-      // Compute rotation angles
       int32_t angle = calculate_arctan_ratio(opposite, adjacent);
       int32_t c = cos_fixed(angle);
       int32_t s = sin_fixed(angle);
 
-      // Apply the Givens rotation to rows i and j in R
       apply_givens_rotation_A(R, c, s, i, j);
-
-      // Explicitly force the eliminated element to 0
-      MAT_SET(R, i, j, 0);
-
-      // Accumulate the rotation in Q (applied to columns i and j)
+      MAT_SET(R, i, j, 0); /* force the eliminated element to exactly 0 */
       apply_givens_rotation_Q(Q, c, s, i, j);
     }
   }

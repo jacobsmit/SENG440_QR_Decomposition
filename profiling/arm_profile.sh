@@ -1,215 +1,175 @@
 #!/bin/bash
 # ============================================================================
-# ARM profiling harness for the fixed-point QR decomposition.
+# Static ARM analysis: instruction counts and instruction mix, per variant,
+# per compiler flag set.
 #
-# Produces the two things that are actually valid on this project's target
-# (Cortex-A7 under QEMU -- see docs/TARGET_PLATFORM.md):
-#
-#   1. STATIC  instruction counts and instruction mix, per routine, per
-#      compiler flag set. A property of the binary; exact.
-#   2. DYNAMIC operation counts from the instrumented build. Deterministic
-#      and host-independent.
+# This is the half of profiling that the Makefile cannot do conveniently
+# (multi-flagset objdump parsing). Dynamic operation counts and accuracy come
+# from `make profile-all` and `make test-all`.
 #
 # It deliberately does NOT report wall-clock time. QEMU's TCG has no pipeline,
 # cache or cycle model, so seconds measured in the guest describe the host
-# machine, not the Cortex-A7.
+# machine, not the Cortex-A7 (docs/TARGET_PLATFORM.md).
 #
-# Run natively inside the ARM VM (uses gcc/objdump), or on a host with an
-# arm-linux-gnueabihf cross-toolchain.
+# Usage:  make static-all
+#     or: ./profiling/arm_profile.sh            (from the repo root or here)
 # ============================================================================
 set -u
 
-cd "$(dirname "$0")"
-SRC=../src/software_base
-OUT=./_profile_out
+cd "$(dirname "$0")/.."   # repo root
+. profiling/flagsets.sh
+
+VARIANTS="${VARIANTS:-naive_float fixed_scalar}"
+FLAGSETS="${FLAGSETS:-$FLAGSETS}"
+OUT=build/static
 mkdir -p "$OUT"
 
-# --- toolchain selection ---------------------------------------------------
+# --- toolchain -------------------------------------------------------------
 if [ "$(uname -m)" = "armv7l" ] || [ "$(uname -m)" = "armv6l" ]; then
-    CC=${CC:-gcc}; OBJDUMP=${OBJDUMP:-objdump}; NATIVE=1
+    CC="${ARM_CC:-gcc}"; DUMP="${ARM_DUMP:-objdump}"
 elif command -v arm-linux-gnueabihf-gcc >/dev/null 2>&1; then
-    CC=${CC:-arm-linux-gnueabihf-gcc}
-    OBJDUMP=${OBJDUMP:-arm-linux-gnueabihf-objdump}; NATIVE=0
+    CC="${ARM_CC:-arm-linux-gnueabihf-gcc}"
+    DUMP="${ARM_DUMP:-arm-linux-gnueabihf-objdump}"
 else
     echo "ERROR: no ARM toolchain found."
     echo "  Run this inside the ARM VM, or install arm-linux-gnueabihf-gcc."
     exit 1
 fi
-echo "toolchain: $CC ($($CC -dumpmachine))  native=$NATIVE"
+echo "toolchain: $CC ($($CC -dumpmachine))"
 echo
 
-# --- flag sets to compare --------------------------------------------------
-# Names must not contain spaces (used as filenames).
-# Modelling "a core with no hardware divider":
-#   armv7-a has no integer-divide extension, so -march=armv7-a already gives a
-#   __aeabi_idiv call instead of SDIV. That is the no-divider comparison, and it
-#   builds cleanly. It is also exactly what Debian's default armhf baseline is.
-#
-#   Do NOT reach for -march=armv5te here. Debian armhf is a hard-float-only
-#   port: ARMv5 has no FPU, and -mfloat-abi=soft then fails because glibc ships
-#   only gnu/stubs-hard.h (gnu/stubs.h picks stubs-soft.h when __ARM_PCS_VFP is
-#   unset). If you want a genuine ARMv5 comparison for the course notes, build
-#   it bare-metal with arm-none-eabi-gcc on the host instead.
-#   Spell the FPU out. Passing -march=armv7-a alone resets the FP spec to
-#   "none", and Debian's gcc defaults to -mfloat-abi=hard, so the bare form
-#   dies with "selected architecture lacks an FPU". vfpv3-d16 + hard is
-#   Debian armhf's baseline. (Note "+idiv" is not a valid armv7-a feature
-#   name -- getting SDIV means -mcpu=cortex-a7.)
-FLAGSETS=(
-  "armv7a-nodiv:-O2 -marm -march=armv7-a -mfpu=vfpv3-d16 -mfloat-abi=hard"
-  "cortex-a7:-O2 -marm -mcpu=cortex-a7"
-  "cortex-a7-O3:-O3 -marm -mcpu=cortex-a7"
-  "cortex-a7-thumb:-O2 -mthumb -mcpu=cortex-a7"
-)
+COMMON="src/common/matrix.c src/common/trig_pwl.c src/common/op_counters.c"
 
-ROUTINES="arctan_fixed sin_fixed cos_fixed calculate_arctan_ratio qr_decomposition"
-
-# ============================================================================
-# Part 1 -- static instruction counts and instruction mix
-# ============================================================================
-echo "============================================================"
-echo " PART 1: static instruction counts per routine"
-echo "============================================================"
-printf "%-18s" "routine"
-for fs in "${FLAGSETS[@]}"; do printf "%16s" "${fs%%:*}"; done
-echo
-
-declare -A COUNT
-for fs in "${FLAGSETS[@]}"; do
-    name="${fs%%:*}"; flags="${fs#*:}"
-    rm -f "$OUT/mu_$name.o" "$OUT/qr_$name.o"
-    # shellcheck disable=SC2086
-    $CC $flags -c "$SRC/math_utils.c" -o "$OUT/mu_$name.o" 2>"$OUT/err_$name.txt"
-    # shellcheck disable=SC2086
-    $CC $flags -c "$SRC/qr_decomp.c"  -o "$OUT/qr_$name.o" 2>>"$OUT/err_$name.txt"
-    if [ ! -f "$OUT/mu_$name.o" ] || [ ! -f "$OUT/qr_$name.o" ]; then
-        echo "  !! BUILD FAILED for '$name' ($flags):"
-        sed 's/^/     /' "$OUT/err_$name.txt" | head -5
-        FAILED="${FAILED:-} $name"
-    fi
-    $OBJDUMP -d "$OUT/mu_$name.o" "$OUT/qr_$name.o" > "$OUT/dis_$name.txt" 2>/dev/null
-
-    for r in $ROUTINES; do
-        n=$(awk -v fn="$r" '
-            $0 ~ ("<"fn">:") {inf=1; next}
-            inf && /^$/ {inf=0}
-            inf && /\t/ {c++}
-            END {print c+0}' "$OUT/dis_$name.txt")
-        COUNT["$r,$name"]=$n
+# --- build every variant x flagset ----------------------------------------
+FAILED=""
+for v in $VARIANTS; do
+    for fs in $FLAGSETS; do
+        flags="$(flags_for "$fs")"
+        tag="${v}__${fs}"
+        rm -f "$OUT/$tag.o"
+        # shellcheck disable=SC2086
+        $CC $flags -Isrc/common -c "src/variants/$v/qr.c" -o "$OUT/${tag}_qr.o" \
+            2>"$OUT/$tag.err"
+        ok=1
+        for c in $COMMON; do
+            b=$(basename "$c" .c)
+            # shellcheck disable=SC2086
+            $CC $flags -Isrc/common -c "$c" -o "$OUT/${tag}_${b}.o" \
+                2>>"$OUT/$tag.err" || ok=0
+        done
+        if [ ! -f "$OUT/${tag}_qr.o" ] || [ "$ok" -eq 0 ]; then
+            echo "  !! BUILD FAILED: $v / $fs ($flags)"
+            sed 's/^/     /' "$OUT/$tag.err" | head -4
+            FAILED="$FAILED $tag"
+            : > "$OUT/$tag.dis"
+            continue
+        fi
+        $DUMP -d "$OUT/${tag}"_*.o > "$OUT/$tag.dis" 2>/dev/null
     done
 done
 
-for r in $ROUTINES; do
-    printf "%-18s" "$r"
-    for fs in "${FLAGSETS[@]}"; do
-        printf "%16s" "${COUNT[$r,${fs%%:*}]}"
+# --- classifier ------------------------------------------------------------
+# Classify by the MNEMONIC FIELD, not by regex over the whole line. objdump
+# emits "<addr>:\t<encoding>\t<mnemonic>\t<operands>", and in Thumb mode
+# mnemonics carry .n/.w width suffixes plus condition codes. Matching raw
+# lines undercounts Thumb branches badly.
+mix_of() {
+    awk -F'\t' '
+      NF>=3 {
+        m = $3
+        gsub(/^[ \t]+|[ \t]+$/, "", m)
+        sub(/\..*$/, "", m)
+        total++
+        base = m
+        sub(/(eq|ne|cs|hs|cc|lo|mi|pl|vs|vc|hi|ls|ge|lt|gt|le|al)$/, "", base)
+        if (m ~ /^(mul|mla|muls|mls)$/)                            mul++
+        else if (m ~ /^(smull|umull|smlal|umlal|smmul|smmla)$/)     lmul++
+        else if (m ~ /^(sdiv|udiv)$/)                              divh++
+        else if (m ~ /^(smlad|smladx|smuad|smuadx|smusd|smusdx)$/)  simd++
+        else if (m ~ /^clz$/)                                      clz++
+        else if (m ~ /^(vmul|vadd|vsub|vdiv|vmla|vcvt|vldr|vstr|vmov)/) vfp++
+        if (base ~ /^(b|bl|bx|blx|cbz|cbnz)$/) br++
+        if (m ~ /^(ldr|ldrb|ldrh|ldrd|ldm|str|strb|strh|strd|stm|push|pop)/) mem++
+      }
+      /__aeabi_idiv/  { idiv++ }
+      /(atan2f|cosf|sinf|sqrtf)/ { libm++ }
+      END { printf "%d %d %d %d %d %d %d %d %d %d\n",
+                   total+0,mul+0,lmul+0,divh+0,idiv+0,simd+0,clz+0,br+0,mem+0,vfp+0 }
+    ' "$1"
+}
+
+for v in $VARIANTS; do
+    echo "============================================================"
+    echo " VARIANT: $v"
+    echo "============================================================"
+
+    # ---- per-routine static counts. Routines differ between variants, so
+    #      discover them from the disassembly rather than hardcoding a list.
+    ref="$OUT/${v}__$(echo "$FLAGSETS" | awk '{print $1}').dis"
+    routines=$(grep -oE '^[0-9a-f]+ <[a-zA-Z_][a-zA-Z0-9_]*>:' "$ref" 2>/dev/null \
+               | sed 's/.*<//;s/>:$//' | sort -u)
+
+    printf "%-26s" "routine"
+    for fs in $FLAGSETS; do printf "%16s" "$fs"; done; echo
+    for r in $routines; do
+        printf "%-26s" "$r"
+        for fs in $FLAGSETS; do
+            n=$(awk -v fn="$r" '
+                $0 ~ ("<"fn">:") {inf=1; next}
+                inf && /^$/ {inf=0}
+                inf && /\t/ {c++}
+                END {print c+0}' "$OUT/${v}__${fs}.dis" 2>/dev/null)
+            printf "%16s" "$n"
+        done
+        echo
+    done
+
+    # ---- instruction mix
+    echo
+    printf "%-26s" "instruction class"
+    for fs in $FLAGSETS; do printf "%16s" "$fs"; done; echo
+    for fs in $FLAGSETS; do mix_of "$OUT/${v}__${fs}.dis" > "$OUT/${v}__${fs}.mix"; done
+    i=1
+    for label in "total instructions" "multiply (mul/mla)" "long mul (smull)" \
+                 "hardware divide" "SOFTWARE idiv call" "SIMD32 dual-MAC" \
+                 "clz (normalisation)" "branches" "loads/stores" "VFP/float ops"; do
+        printf "%-26s" "$label"
+        for fs in $FLAGSETS; do
+            printf "%16s" "$(awk -v f=$i '{print $f}' "$OUT/${v}__${fs}.mix")"
+        done
+        echo
+        i=$((i+1))
     done
     echo
 done
 
-echo
-echo "============================================================"
-echo " PART 2: instruction mix (whole module)"
-echo "============================================================"
-printf "%-24s" "class"
-for fs in "${FLAGSETS[@]}"; do printf "%16s" "${fs%%:*}"; done
-echo
+cat <<'NOTE'
+============================================================
+ Reading these tables
+============================================================
+ * hardware divide vs SOFTWARE idiv call: the Cortex-A7 HAS SDIV, but the
+   armv7-a baseline (also Debian's default armhf baseline) does not enable it,
+   so a default build pays a libgcc call anyway. A compiler-flag result, not a
+   hardware one -- report both.
 
-# Classify by the MNEMONIC FIELD, not by regex over the whole line.
-# objdump emits  "<addr>:\t<encoding>\t<mnemonic>\t<operands>", and in Thumb
-# mode mnemonics carry .n/.w width suffixes (b.n, beq.w) plus condition codes.
-# Matching raw lines undercounts Thumb branches badly, so strip suffixes first.
-mix_all() {
-    for fs in "${FLAGSETS[@]}"; do
-        name="${fs%%:*}"
-        awk -F'\t' -v OFS='' '
-          NF>=3 {
-            m = $3
-            gsub(/^[ \t]+|[ \t]+$/, "", m)
-            sub(/\..*$/, "", m)                      # drop .n / .w width suffix
-            total++
-            # strip a trailing condition code so beq/blt/... classify as branch
-            base = m
-            sub(/(eq|ne|cs|hs|cc|lo|mi|pl|vs|vc|hi|ls|ge|lt|gt|le|al)$/, "", base)
-            if (m ~ /^(mul|mla|muls|mls)$/)                        mul++
-            else if (m ~ /^(smull|umull|smlal|umlal|smmul|smmla)$/) lmul++
-            else if (m ~ /^(sdiv|udiv)$/)                          divh++
-            else if (m ~ /^(smlad|smladx|smuad|smuadx|smusd|smusdx)$/) simd32++
-            else if (m ~ /^clz$/)                                  clz++
-            if (base ~ /^(b|bl|bx|blx|cbz|cbnz)$/ || m ~ /^(b|bl|bx|blx)$/) br++
-            if (m ~ /^(ldr|ldrb|ldrh|ldrd|ldm|str|strb|strh|strd|stm|push|pop)/) mem++
-          }
-          /__aeabi_idiv/ { idiv++ }
-          END {
-            printf "%d %d %d %d %d %d %d %d %d\n", total+0, mul+0, lmul+0, divh+0,
-                   idiv+0, simd32+0, br+0, mem+0, clz+0
-          }' "$OUT/dis_$name.txt" > "$OUT/mix_$name.txt"
-    done
-}
-mix_all
-mix_row() {
-    local label="$1"; local field="$2"
-    printf "%-24s" "$label"
-    for fs in "${FLAGSETS[@]}"; do
-        name="${fs%%:*}"
-        printf "%16s" "$(awk -v f="$field" '{print $f}' "$OUT/mix_$name.txt")"
-    done
+ * These static counts UNDERSTATE the divider cost. A call to __aeabi_idiv is
+   only 1-2 instructions at the call site; the expensive part is the libgcc
+   routine body, which lives in another module and is not counted here. The
+   penalty belongs in a hand cycle-count from the Cortex-A7 TRM.
+
+ * "total instructions" is a COUNT, not code size. Thumb instructions are 2
+   bytes against ARM's 4, so Thumb usually shows more instructions while
+   producing smaller code. Use `size` on the objects for byte counts.
+
+ * VFP/float ops should be ~0 for every fixed-point variant. A non-zero count
+   there means floating point leaked into an integer code path.
+
+ Artifacts: build/static/*.dis (disassembly), *.mix (raw classifier output)
+============================================================
+NOTE
+
+if [ -n "$FAILED" ]; then
     echo
-}
-mix_row "total instructions"   1
-mix_row "multiply (mul/mla)"   2
-mix_row "long mul (smull etc)" 3
-mix_row "hardware divide"      4
-mix_row "SOFTWARE divide call" 5
-mix_row "SIMD32 dual-MAC"      6
-mix_row "branches"             7
-mix_row "loads/stores"         8
-mix_row "clz (normalisation)"  9
-
-echo
-echo "  KEY RESULT: compare 'hardware divide' against 'SOFTWARE divide call'."
-echo "  The Cortex-A7 HAS SDIV, but the armv7-a baseline (which is also Debian's"
-echo "  default armhf baseline) does not enable it -- so a default build pays a"
-echo "  libgcc call anyway. Compiler-flag result, not a hardware result."
-echo
-echo "  CAVEAT -- these static counts UNDERSTATE the divider cost. A call to"
-echo "  __aeabi_idiv is only 1-2 instructions at the call site; the expensive"
-echo "  part is the libgcc routine body, which lives in another module and is"
-echo "  NOT counted here. That is why calculate_arctan_ratio differs by only a"
-echo "  couple of instructions between the two builds while the real cost gap is"
-echo "  much larger. The divider penalty shows up in PART 3's modelled cost, and"
-echo "  properly belongs in a hand cycle-count from the Cortex-A7 TRM."
-
-# ============================================================================
-# Part 3 -- dynamic operation counts (deterministic)
-# ============================================================================
-echo
-echo "============================================================"
-echo " PART 3: dynamic operation counts (instrumented build)"
-echo "============================================================"
-$CC -O2 -marm -mcpu=cortex-a7 -DPROFILE_OPS \
-    -o "$OUT/profile_ops" profile_ops.c "$SRC/math_utils.c" "$SRC/qr_decomp.c" \
-    -lm 2>&1 | head -20
-if [ -x "$OUT/profile_ops" ]; then
-    "$OUT/profile_ops" "${ITERATIONS:-1000}" "${MAGNITUDE:-8}"
-else
-    echo "  build of instrumented profiler FAILED"
+    echo "BUILDS FAILED:$FAILED"
+    exit 1
 fi
-
-# ============================================================================
-# Part 4 -- accuracy regression (correctness must not change)
-# ============================================================================
-echo
-echo "============================================================"
-echo " PART 4: accuracy regression"
-echo "============================================================"
-$CC -O2 -marm -mcpu=cortex-a7 -o "$OUT/test_acc" \
-    ../tests/test_qr_accuracy.c "$SRC/math_utils.c" "$SRC/qr_decomp.c" \
-    -lm 2>&1 | head -10
-if [ -x "$OUT/test_acc" ]; then "$OUT/test_acc"; else echo "  build FAILED"; fi
-
-echo
-echo "============================================================"
-echo " Artifacts in $OUT/ : disassembly per flag set (dis_*.txt)"
-echo " Re-run after each optimisation and diff the tables above."
-echo "============================================================"
