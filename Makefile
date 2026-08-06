@@ -11,7 +11,7 @@
 # Adding a variant: create src/variants/<name>/qr.c and add <name> to VARIANTS.
 # ============================================================================
 
-VARIANTS := naive_float fixed_scalar fixed_simd32
+VARIANTS := naive_float fixed_scalar fixed_simd32 fixed_asip
 
 # Variants exposing a native float entry point (measured without fixed-point
 # conversion, since a naive implementation would never do that).
@@ -57,13 +57,13 @@ WARN := -Wall -Wextra
 # Costs 3 instructions per measured call (~0.1%), inside the measured region.
 PROFILE_CFLAGS := -fno-optimize-sibling-calls
 
-.PHONY: all test-all profile-all static-all instr-all instr-detail cycles compare clean help asm
+.PHONY: all test-all profile-all static-all instr-all instr-detail cycles asip-asm compare clean help asm
 .PHONY: $(addprefix test-,$(VARIANTS)) $(addprefix profile-,$(VARIANTS))
 
 all: test-all
 
 help:
-	@echo "targets: test-all profile-all static-all instr-all instr-detail cycles compare asm clean"
+	@echo "targets: test-all profile-all static-all instr-all instr-detail cycles asip-asm compare asm clean"
 	@echo "variants: $(VARIANTS)"
 	@echo "flagsets: (see profiling/flagsets.sh)"
 
@@ -181,6 +181,44 @@ cycles:
 	   $(BUILD)/$(VARIANT)/profile $(LIBM) $(LIBC)
 	@echo
 	@echo "Divide by $(CG_ITERATIONS) for per-QR figures."
+
+# ============================================================================
+# The custom instruction, instantiated for real.
+#
+# Produces an assembly listing containing "GIVENSQ Rd, Rn, Rm" and stops. The
+# assembler has no opcode for it, so this can never be linked -- Lesson 100:
+# "You cannot assemble such code, since the assembler cannot allocate an
+# operation code for EXECUTE_B". The failure is the expected outcome and is
+# demonstrated, not hidden.
+#
+# The runnable, accuracy-tested build of the same variant uses the C reference
+# model instead (plain `make test-fixed_asip`).
+# ============================================================================
+asip-asm:
+	@if [ -z "$(ARM_CC)" ]; then echo "ERROR: no ARM toolchain."; exit 1; fi
+	@mkdir -p $(BUILD)/fixed_asip
+	@. profiling/flagsets.sh; \
+	 flags=$$(flags_for cortex-a7); \
+	 echo ">>> compiling with -DUSE_GIVENSQ_ASM $$flags -S"; \
+	 $(ARM_CC) $$flags -Isrc/common -DUSE_GIVENSQ_ASM -S \
+	   -o $(BUILD)/fixed_asip/qr.givensq.s src/variants/fixed_asip/qr.c \
+	 && echo "    wrote $(BUILD)/fixed_asip/qr.givensq.s"
+	@echo
+	@echo ">>> the instruction in the generated listing:"
+	@grep -n -B2 -A2 "GIVENSQ" $(BUILD)/fixed_asip/qr.givensq.s | sed 's/^/    /' \
+	  || { echo "    !! GIVENSQ not found -- inline asm did not survive"; exit 1; }
+	@echo
+	@echo ">>> now try to assemble it (this MUST fail -- that is the point):"
+	@. profiling/flagsets.sh; \
+	 flags=$$(flags_for cortex-a7); \
+	 if $(ARM_CC) $$flags -c -o $(BUILD)/fixed_asip/qr.givensq.o \
+	      $(BUILD)/fixed_asip/qr.givensq.s 2>$(BUILD)/fixed_asip/as.log; then \
+	   echo "    !! UNEXPECTED: it assembled. The mnemonic collided with a real"; \
+	   echo "       instruction -- pick a different name."; exit 1; \
+	 else \
+	   echo "    assembler rejected it, as expected:"; \
+	   head -3 $(BUILD)/fixed_asip/as.log | sed 's/^/      /'; \
+	 fi
 
 instr-detail:
 	@if [ -z "$(VARIANT)" ]; then echo "usage: make instr-detail VARIANT=<name>"; exit 2; fi
