@@ -44,13 +44,13 @@ endif
 
 WARN := -Wall -Wextra
 
-.PHONY: all test-all profile-all static-all compare clean help asm
+.PHONY: all test-all profile-all static-all instr-all compare clean help asm
 .PHONY: $(addprefix test-,$(VARIANTS)) $(addprefix profile-,$(VARIANTS))
 
 all: test-all
 
 help:
-	@echo "targets: test-all profile-all static-all compare asm clean"
+	@echo "targets: test-all profile-all static-all instr-all compare asm clean"
 	@echo "variants: $(VARIANTS)"
 	@echo "flagsets: (see profiling/flagsets.sh)"
 
@@ -124,6 +124,32 @@ asm:
 # ============================================================================
 # CSV summary for the report
 # ============================================================================
+# ============================================================================
+# Exact dynamic instruction counts (callgrind). This is the metric that shows
+# whether an optimisation worked for EVERY kind of change -- including inline
+# assembly and loop unrolling, which alter the instruction stream without
+# changing operation counts and are therefore invisible in the op-count table.
+#
+# Slow: callgrind instruments every instruction, on top of QEMU's own overhead.
+# Hence the much smaller default iteration count -- the per-QR figure is
+# deterministic, so a small sample is enough.
+# ============================================================================
+CG_ITERATIONS ?= 50
+
+instr-all:
+	@if ! command -v valgrind >/dev/null 2>&1; then \
+	  echo "ERROR: valgrind not installed (apt-get install valgrind)"; exit 1; fi
+	@mkdir -p $(BUILD)
+	@echo "variant,cg_iterations,ir_total,ir_per_qr" > $(BUILD)/instr.csv
+	@for v in $(VARIANTS); do \
+	  $(MAKE) -s $(BUILD)/$$v/profile; \
+	  echo "  running callgrind on $$v ($(CG_ITERATIONS) iterations, this is slow)..."; \
+	  ./profiling/callgrind_count.sh $$v $(CG_ITERATIONS) >> $(BUILD)/instr.csv \
+	    || { echo "  !! callgrind failed for $$v"; exit 1; }; \
+	done
+	@echo "wrote $(BUILD)/instr.csv"
+	@cat $(BUILD)/instr.csv
+
 # `compare` runs ALL THREE measurements and writes the report tables:
 #   build/ops.csv     one row per variant: operation counts + accuracy
 #   build/static.csv  one row per variant x flagset: instruction counts
