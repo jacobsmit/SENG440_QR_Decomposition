@@ -107,44 +107,63 @@ def disassemble(obj):
 
 
 def parse_callgrind(path):
-    """[(object, function, address, count)] -- self cost only."""
-    rows, ob, fn, addr = [], "?", "?", 0
+    """[(object, function, address, count)] -- self cost only.
+
+    The cost line layout is declared by the file's "positions:" header. With
+    --dump-instr=yes callgrind emits "positions: instr line", i.e. TWO position
+    fields before the cost:  <addr> <line> <cost>.  Assuming a single position
+    field silently reads the line number as the cost -- which is 0 without
+    debug info, so every count comes out zero. Parse the header instead.
+
+    Each position field is independently compressed: absolute, "+n"/"-n"
+    relative to that field's previous value, or "*" meaning unchanged.
+    """
+    rows, ob, fn = [], "?", "?"
+    npos = 1
+    last = [0]
     skip_next_cost = False   # the line after calls= is inclusive call cost
+
+    def advance(tok, prev):
+        if tok == "*":
+            return prev
+        if tok.startswith("0x") or tok.startswith("0X"):
+            return int(tok, 16)
+        if tok.startswith(("+", "-")):
+            return prev + int(tok)
+        return int(tok)
+
     with open(path) as fh:
         for line in fh:
             line = line.rstrip("\n")
+            if line.startswith("positions:"):
+                npos = len(line.split()) - 1
+                last = [0] * npos
+                continue
             if line.startswith("ob="):
                 ob = line[3:].split(")")[-1].strip() or ob
             elif line.startswith("fn="):
                 fn = line[3:].split(")")[-1].strip() or fn
-                addr = 0
-            elif line.startswith(("cob=", "cfi=", "cfn=", "fi=", "fe=", "fl=")):
-                pass
+                last = [0] * npos
+            elif line.startswith(("cob=", "cfi=", "cfn=", "fi=", "fe=", "fl=",
+                                  "events:", "version:", "creator:", "cmd:",
+                                  "part:", "desc:", "summary:", "totals:")):
+                continue
             elif line.startswith("calls="):
                 skip_next_cost = True
-            elif line and (line[0].isdigit() or line[0] in "+-*0x"):
+            elif line and (line[0].isdigit() or line[0] in "+-*"):
                 parts = line.split()
-                if len(parts) < 2:
+                if len(parts) < npos + 1:
                     continue
-                pos, cost = parts[0], parts[1]
-                if pos.startswith("0x"):
-                    addr = int(pos, 16)
-                elif pos in ("*",):
-                    pass
-                elif pos.startswith(("+", "-")):
-                    addr += int(pos)
-                else:
-                    try:
-                        addr = int(pos)
-                    except ValueError:
-                        continue
+                try:
+                    for i in range(npos):
+                        last[i] = advance(parts[i], last[i])
+                    cost = int(parts[npos])
+                except ValueError:
+                    continue
                 if skip_next_cost:
                     skip_next_cost = False
                     continue
-                try:
-                    rows.append((ob, fn, addr, int(cost)))
-                except ValueError:
-                    pass
+                rows.append((ob, fn, last[0], cost))
     return rows
 
 
@@ -214,6 +233,16 @@ def main():
         print("   Supply the missing object(s) on the command line. Top offenders:")
         for k, v in sorted(unmapped.items(), key=lambda kv: -kv[1])[:8]:
             print(f"     {v:>12,}  {k}")
+        libc_ish = sum(v for k, v in unmapped.items()
+                       if "libc" in k or "ld-linux" in k
+                       or any(t in k for t in ("malloc", "printf", "puts",
+                                               "memcpy", "vfprintf")))
+        if libc_ish > 0.5 * unmapped_total:
+            print("\n   DIAGNOSIS: most unmapped work is libc startup/printf, which means")
+            print("   collection was left ON outside the measured region. Usual cause: the")
+            print("   --toggle-collect function was TAIL CALLED, so callgrind saw it entered")
+            print("   but never left. Build the profiler with -fno-optimize-sibling-calls")
+            print("   (Makefile PROFILE_CFLAGS).")
         if pct > 5:
             print("   >5% unmapped -- the cycle total above is NOT trustworthy.")
             sys.exit(1)

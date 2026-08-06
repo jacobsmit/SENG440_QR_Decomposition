@@ -48,6 +48,15 @@ endif
 
 WARN := -Wall -Wextra
 
+# Measurement-build only. The qr_profiled() wrappers exist so callgrind can
+# toggle collection on a known, non-recursive symbol. At -O2 gcc turns them
+# into TAIL CALLS ("b qr_decomposition" instead of push/bl/pop) -- callgrind
+# then sees the function entered but never left, so --toggle-collect never
+# switches collection back off and printf/malloc/libc pour into the totals.
+# Disabling sibling-call optimisation keeps the return visible.
+# Costs 3 instructions per measured call (~0.1%), inside the measured region.
+PROFILE_CFLAGS := -fno-optimize-sibling-calls
+
 .PHONY: all test-all profile-all static-all instr-all instr-detail cycles compare clean help asm
 .PHONY: $(addprefix test-,$(VARIANTS)) $(addprefix profile-,$(VARIANTS))
 
@@ -78,7 +87,7 @@ $(BUILD)/$(1)/test: src/variants/$(1)/qr.c $(COMMON_SRC) $(COMMON_HDR) tests/tes
 
 $(BUILD)/$(1)/profile: src/variants/$(1)/qr.c $(COMMON_SRC) $(COMMON_HDR) profiling/profile_ops.c
 	@mkdir -p $$(dir $$@)
-	$(CC) $(WARN) $(PORTABLE_CFLAGS) -DPROFILE_OPS $$(EXTRA_$(1)) -o $$@ \
+	$(CC) $(WARN) $(PORTABLE_CFLAGS) $(PROFILE_CFLAGS) -DPROFILE_OPS $$(EXTRA_$(1)) -o $$@ \
 	    profiling/profile_ops.c src/variants/$(1)/qr.c $(COMMON_SRC) -lm
 
 test-$(1): $(BUILD)/$(1)/test
