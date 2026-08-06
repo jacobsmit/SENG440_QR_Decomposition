@@ -13,6 +13,10 @@
 
 VARIANTS := naive_float fixed_scalar
 
+# Variants exposing a native float entry point (measured without fixed-point
+# conversion, since a naive implementation would never do that).
+EXTRA_naive_float := -DVARIANT_HAS_F32
+
 # Flag sets for the static analysis live in profiling/flagsets.sh -- single
 # source of truth, shared with arm_profile.sh. Do not duplicate them here.
 
@@ -74,7 +78,7 @@ $(BUILD)/$(1)/test: src/variants/$(1)/qr.c $(COMMON_SRC) $(COMMON_HDR) tests/tes
 
 $(BUILD)/$(1)/profile: src/variants/$(1)/qr.c $(COMMON_SRC) $(COMMON_HDR) profiling/profile_ops.c
 	@mkdir -p $$(dir $$@)
-	$(CC) $(WARN) $(PORTABLE_CFLAGS) -DPROFILE_OPS -o $$@ \
+	$(CC) $(WARN) $(PORTABLE_CFLAGS) -DPROFILE_OPS $$(EXTRA_$(1)) -o $$@ \
 	    profiling/profile_ops.c src/variants/$(1)/qr.c $(COMMON_SRC) -lm
 
 test-$(1): $(BUILD)/$(1)/test
