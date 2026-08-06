@@ -179,15 +179,26 @@ def main():
         sys.exit(__doc__)
     cg, objs = sys.argv[1], sys.argv[2:]
 
+    def norm(name):
+        """Strip glibc version suffixes: atan2f@@GLIBC_2.15 -> atan2f."""
+        return name.split("@")[0]
+
     dis = {}
-    by_abs = {}          # absolute address -> mnemonic (works for non-PIE)
-    by_fn = {}           # function name -> (object, {offset: mnemonic})
+    by_abs = {}   # (object basename, address) -> mnemonic.
+                  # Keyed by object on purpose: an address alone is ambiguous
+                  # across objects, and matching libm addresses against the
+                  # main binary silently misclassified ~50% of naive_float's
+                  # instructions (they landed on whatever happened to sit at
+                  # that address, mostly branches).
+    by_fn = {}    # normalised function name -> {offset: mnemonic}
     for o in objs:
         funcs, absmap = disassemble(o)
+        base = o.split("/")[-1]
         dis[o] = funcs
-        by_abs.update(absmap)
+        for a_, mn in absmap.items():
+            by_abs[(base, a_)] = mn
         for f, offs in funcs.items():
-            by_fn.setdefault(f, (o, offs))
+            by_fn.setdefault(norm(f), offs)
 
     rows = parse_callgrind(cg)
     if not rows:
@@ -207,13 +218,14 @@ def main():
     total = 0
     for ob, fn, addr, cost in rows:
         total += cost
-        # Absolute address first (correct for non-PIE objects), then fall back
-        # to (function, offset) which survives shared-library relocation.
-        mn = by_abs.get(addr)
+        # Absolute address within the SAME object first, then (function,
+        # offset), which survives shared-library relocation.
+        obase = ob.split("/")[-1]
+        mn = by_abs.get((obase, addr))
         if mn is None:
-            entry = by_fn.get(fn)
-            if entry is not None:
-                mn = entry[1].get(addr - fn_base[(ob, fn)])
+            offs = by_fn.get(norm(fn))
+            if offs is not None:
+                mn = offs.get(addr - fn_base[(ob, fn)])
         if mn is None:
             unmapped[f"{fn}+0x{addr - fn_base.get((ob, fn), 0):x} "
                      f"[{ob.split('/')[-1]}]"] += cost
