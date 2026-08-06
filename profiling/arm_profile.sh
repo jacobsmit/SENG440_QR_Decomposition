@@ -50,8 +50,13 @@ echo
 #   only gnu/stubs-hard.h (gnu/stubs.h picks stubs-soft.h when __ARM_PCS_VFP is
 #   unset). If you want a genuine ARMv5 comparison for the course notes, build
 #   it bare-metal with arm-none-eabi-gcc on the host instead.
+#   Spell the FPU out. Passing -march=armv7-a alone resets the FP spec to
+#   "none", and Debian's gcc defaults to -mfloat-abi=hard, so the bare form
+#   dies with "selected architecture lacks an FPU". vfpv3-d16 + hard is
+#   Debian armhf's baseline. (Note "+idiv" is not a valid armv7-a feature
+#   name -- getting SDIV means -mcpu=cortex-a7.)
 FLAGSETS=(
-  "armv7a-nodiv:-O2 -marm -march=armv7-a"
+  "armv7a-nodiv:-O2 -marm -march=armv7-a -mfpu=vfpv3-d16 -mfloat-abi=hard"
   "cortex-a7:-O2 -marm -mcpu=cortex-a7"
   "cortex-a7-O3:-O3 -marm -mcpu=cortex-a7"
   "cortex-a7-thumb:-O2 -mthumb -mcpu=cortex-a7"
