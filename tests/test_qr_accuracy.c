@@ -92,6 +92,105 @@ static float max_abs(const float *A) {
   return m;
 }
 
+/* --- Randomised integer matrices ---------------------------------------
+ *
+ * The four hand-written cases above are not enough. A broken FIXED_DIV was
+ * measured at ~124% relative error on random matrices while those four cases
+ * still passed -- their particular values simply never hit the overflow path.
+ * Fixed test data is lucky, not representative.
+ *
+ * These cases also satisfy the spec requirement for "a square matrix of
+ * integers (12-bit wordlength)": the mag=2047 sweep is exactly that.
+ *
+ * The generator is a plain LCG with a fixed seed, so the sequence is identical
+ * on every host and every run -- a failure here is always reproducible.
+ */
+
+static uint32_t rng_state;
+
+static int32_t rng_entry(int32_t mag) {
+  rng_state = rng_state * 1103515245u + 12345u;
+  return (int32_t)((rng_state >> 16) % (uint32_t)(2 * mag + 1)) - mag;
+}
+
+typedef struct {
+  const char *name;
+  int32_t mag;    /* integer entries uniform in [-mag, +mag] */
+  int n_matrices;
+  float tol_recon_rel;
+  float tol_orth;
+} random_suite_t;
+
+/* Returns the number of failed checks (0 or up to 2). */
+static int run_random_suite(const random_suite_t *rs) {
+  rng_state = 12345u; /* fixed seed: reproducible */
+
+  float worst_recon_rel = 0.0f, worst_orth = 0.0f;
+  int worst_recon_at = -1, worst_orth_at = -1;
+
+  for (int t = 0; t < rs->n_matrices; t++) {
+    float A[MATRIX_ELEMENTS];
+    int32_t A_fixed[MATRIX_ELEMENTS];
+    int32_t Q_fixed[MATRIX_ELEMENTS];
+    int32_t R_fixed[MATRIX_ELEMENTS];
+
+    for (int i = 0; i < MATRIX_ELEMENTS; i++) {
+      int32_t v = rng_entry(rs->mag);
+      A[i] = (float)v;
+      /* Integer-valued, converted straight to Q11 -- no float rounding. */
+      A_fixed[i] = v * FIXED_SCALE;
+    }
+
+    qr_decomposition(A_fixed, Q_fixed, R_fixed);
+
+    float Q[MATRIX_ELEMENTS], R[MATRIX_ELEMENTS];
+    fixed_to_float_matrix(Q_fixed, Q);
+    fixed_to_float_matrix(R_fixed, R);
+
+    float QR[MATRIX_ELEMENTS];
+    matrix_multiply_float(Q, R, QR);
+    float scale = max_abs(A);
+    if (scale > 0.0f) {
+      float rel = compute_max_absolute_error(A, QR) / scale;
+      if (rel > worst_recon_rel) {
+        worst_recon_rel = rel;
+        worst_recon_at = t;
+      }
+    }
+
+    float Q_T[MATRIX_ELEMENTS], QQ_T[MATRIX_ELEMENTS];
+    matrix_transpose_float(Q, Q_T);
+    matrix_multiply_float(Q, Q_T, QQ_T);
+    float I[MATRIX_ELEMENTS] = {1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f,
+                                0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f,
+                                0.0f, 0.0f, 0.0f, 1.0f};
+    float orth = compute_max_absolute_error(I, QQ_T);
+    if (orth > worst_orth) {
+      worst_orth = orth;
+      worst_orth_at = t;
+    }
+  }
+
+  int failures = 0;
+  printf("--- %s ---\n", rs->name);
+  printf("    (%d random integer matrices, entries in [-%d, %d], seed 12345)\n",
+         rs->n_matrices, rs->mag, rs->mag);
+
+  int ok = (worst_recon_rel <= rs->tol_recon_rel);
+  printf("  %-22s %7.2f%% at #%-6d  (limit %5.2f%%)  %s\n", "worst recon rel",
+         worst_recon_rel * 100.0f, worst_recon_at, rs->tol_recon_rel * 100.0f,
+         ok ? "PASS" : "**FAIL**");
+  if (!ok) failures++;
+
+  ok = (worst_orth <= rs->tol_orth);
+  printf("  %-22s %7.4f  at #%-6d  (limit %6.4f)  %s\n", "worst orth", worst_orth,
+         worst_orth_at, rs->tol_orth, ok ? "PASS" : "**FAIL**");
+  if (!ok) failures++;
+
+  printf("\n");
+  return failures;
+}
+
 /* --- One test case. Returns the number of failed checks. --- */
 
 static int run_accuracy_test(const test_case_t *tc) {
@@ -207,10 +306,31 @@ int main(void) {
     if (f) failed_cases++;
   }
 
+  /* Randomised sweeps. Tolerances from 4000-matrix measurement per magnitude:
+     worst relative recon 7.0-10.3%, worst orth 0.084-0.098. Limits below sit
+     ~1.4x above that -- loose enough for jitter, far tighter than the ~100%+
+     a 32-bit overflow produces. */
+  static const random_suite_t random_suites[] = {
+      {"Random small (max|A| = 4)", 4, 1000, 0.15f, 0.13f},
+      {"Random at the old overflow cliff (max|A| = 512)", 512, 1000, 0.15f,
+       0.13f},
+      {"Random 12-bit integers (max|A| = 2047)  <-- spec requirement", 2047,
+       1000, 0.15f, 0.13f},
+      {"Random large (max|A| = 65536)", 65536, 1000, 0.15f, 0.13f},
+      {"Random near Q11 ceiling (max|A| = 262144)", 262144, 1000, 0.15f, 0.13f},
+  };
+  const int n_random = (int)(sizeof(random_suites) / sizeof(random_suites[0]));
+
+  for (int i = 0; i < n_random; i++) {
+    int f = run_random_suite(&random_suites[i]);
+    total_failures += f;
+    if (f) failed_cases++;
+  }
+
   printf("==========================================\n");
   if (total_failures == 0) {
-    printf(" RESULT: PASS  (%d of %d cases within tolerance", n_cases - xfail_cases,
-           n_cases);
+    printf(" RESULT: PASS  (%d fixed + %d random cases within tolerance",
+           n_cases - xfail_cases, n_random);
     if (xfail_cases) printf(", %d known-bug XFAIL", xfail_cases);
     printf(")\n");
     printf("==========================================\n");

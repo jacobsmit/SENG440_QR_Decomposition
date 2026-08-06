@@ -32,7 +32,7 @@ Status legend: `[x]` done · `[~]` partial · `[ ]` not started
 
 ## 1. Specification requirements not yet met (Lesson 112, requirements I & II)
 
-- [ ] **1.1 Generate square matrices of 12-bit integers.** Spec: *"Generate a square matrix of
+- [~] **1.1 Generate square matrices of 12-bit integers. PARTLY DONE** — the test suite now generates seeded random 12-bit integer matrices; `main.c` still uses hardcoded floats. Original text: Spec: *"Generate a square matrix of
   integers (12-bit wordlength, for example)."* Currently `main.c` and `test_qr_accuracy.c` use
   four hardcoded small float matrices converted with `FLOAT_TO_FIXED`. Need a generator producing
   random 12-bit signed integer matrices, plus a fixed seed so results are reproducible in the report.
@@ -213,7 +213,7 @@ Status legend: `[x]` done · `[~]` partial · `[ ]` not started
   `:70` loop `NUM_ITERATIONS_MATH * 10` = 100M iterations but print `[10M ops]`
   (lines 63 and 91). Any per-operation cost derived from this is off by 10×. Fix before the
   numbers go in the report.
-- [ ] **4.5 Broaden the test matrices.** Four hardcoded cases today. Add: near-singular,
+- [~] **4.5 Broaden the test matrices. PARTLY DONE** — 5 randomised integer sweeps added (seeded LCG, 1000 matrices each, incl. the 12-bit spec case). Still missing: near-singular, ill-conditioned, zero-on-diagonal, and a NumPy/LAPACK cross-check. Original text: Four hardcoded cases today. Add: near-singular,
   ill-conditioned (the notes make a point of ill-conditioning), zero on the diagonal
   (`R[j][j] == 0` → the `D == 0` path), all-zero row, and large-dynamic-range matrices.
   Cross-check `Q`/`R` against a NumPy/LAPACK reference rather than only the `A ≈ QR` invariant.
