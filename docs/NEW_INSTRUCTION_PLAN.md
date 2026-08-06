@@ -108,9 +108,20 @@ GIVENSQ  Rd, Rn, Rm
   Rn  = opposite  (R[i][j], Q11 signed)
   Rm  = adjacent  (R[j][j], Q11 signed)
   Rd  = packed rotation coefficients:
-          Rd[31:16] = c = cos(theta)  in Q11, sign-extended 16-bit field
-          Rd[15:0]  = s = sin(theta)  in Q11, sign-extended 16-bit field
+          Rd[31:16] = s = sin(theta)   in Q14, signed 16-bit field
+          Rd[15:0]  = c = cos(theta)   in Q14, signed 16-bit field
         where theta = atan2(opposite, adjacent)
+
+  ORDER AND FORMAT ARE NOT ARBITRARY. This is exactly the operand layout
+  SMLAD/SMUSDX consume in fixed_simd32:
+      SMLAD (cs, t) = cs.lo*t.lo + cs.hi*t.hi = c*tj + s*ti  -> row_j
+      SMUSDX(cs, t) = cs.lo*t.hi - cs.hi*t.lo = c*ti - s*tj  -> row_i
+  so GIVENSQ's result feeds the rotation with ZERO repacking. Q14 rather than
+  Q11 for the same reason -- it is what the SIMD32 variant already uses.
+
+  The ARM one-result limit forced packing; it turns out to be precisely the
+  format the DSP extension wants. Worth making that point in the report: the
+  ASIP extension and SIMD32 compose rather than compete.
 
   Edge cases (must be defined, and must match across C / FW / VHDL):
     adjacent == 0, opposite != 0  -> theta = +/- pi/2  -> c = 0, s = +/-2048

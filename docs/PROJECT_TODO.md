@@ -102,7 +102,10 @@ Status legend: `[x]` done · `[~]` partial · `[ ]` not started
   - [ ] `valgrind --tool=cachegrind --branch-sim=yes` for cache misses and branch stats — directly
         supports the report's §3.3.2 (branch misprediction) and §3.3.4 (strided access on Q) claims,
         which are currently asserted without evidence.
-- [ ] **2.7 Amdahl's-law framing.** State what fraction of runtime the trig/angle calculation is,
+- [~] **2.7 Amdahl's-law framing. PARTLY MEASURED** — trig/angle is 910.5 instr/QR of
+  fixed_scalar's 2290.1 (39.8 %, ceiling 1.66x) and of fixed_simd32's 2058.1 (44.2 %, ceiling
+  1.79x). SIMD32 fixed the rotations, which promoted the trig to dominant -- so GIVENSQ's ceiling
+  went UP. Confirm the exact fixed_simd32 trig share with `make instr-detail`. Original text: State what fraction of runtime the trig/angle calculation is,
   and derive the maximum achievable speedup from accelerating it. This is the argument for the
   whole ASIP exercise and it's currently absent.
 - [ ] **2.8 (Optional, high value) NEON SIMD version** of the row/column update — report §5.1.
