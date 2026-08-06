@@ -14,6 +14,7 @@
  */
 
 #include "../../common/qr_iface.h"
+#include "../../common/matrix_f32.h"
 #include <math.h>
 
 #ifdef PROFILE_OPS
@@ -24,6 +25,14 @@
 #endif
 
 const char *const QR_VARIANT_NAME = "naive_float";
+
+/* Local so the whole float algorithm lives in this file and is captured by the
+   static ARM analysis, which compiles qr.c + trig_pwl.c + matrix.c only. */
+static void identity_f32(float *mat) {
+  for (int i = 0; i < MATRIX_SIZE; i++)
+    for (int j = 0; j < MATRIX_SIZE; j++)
+      mat[i * MATRIX_SIZE + j] = (i == j) ? 1.0f : 0.0f;
+}
 
 static void rotate_rows_f32(float *A, float c, float s, int i, int j) {
   OPC(rotations);
@@ -48,7 +57,7 @@ static void rotate_cols_f32(float *Q, float c, float s, int i, int j) {
 void qr_decomposition_f32(const float *A, float *Q, float *R) {
   OPC(qr_calls);
 
-  init_identity_f32(Q);
+  identity_f32(Q);
   for (int i = 0; i < MATRIX_ELEMENTS; i++) R[i] = A[i];
 
   for (int j = 0; j < MATRIX_SIZE; j++) {

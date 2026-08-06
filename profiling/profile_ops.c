@@ -12,6 +12,7 @@
  */
 
 #include "../src/common/op_counters.h"
+#include "../src/common/matrix_f32.h"
 #include "../src/common/qr_iface.h"
 #include <stdio.h>
 #include <stdlib.h>

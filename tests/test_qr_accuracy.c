@@ -16,6 +16,7 @@
  * baseline) may need its own numbers -- record them, do not just widen these.
  */
 
+#include "../src/common/matrix_f32.h"
 #include "../src/common/qr_iface.h"
 #include <math.h>
 #include <stdio.h>

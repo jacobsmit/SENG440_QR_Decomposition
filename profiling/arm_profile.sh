@@ -38,7 +38,21 @@ fi
 echo "toolchain: $CC ($($CC -dumpmachine))"
 echo
 
-COMMON="src/common/matrix.c src/common/trig_pwl.c src/common/op_counters.c"
+# The ALGORITHM only. matrix_f32.c (boundary conversions, float matrix maths,
+# printing) and op_counters.c (instrumentation) are test/report scaffolding --
+# including them added ~500 instructions and 150 VFP ops of noise to every
+# variant and made the vfp_ops leak-detector column meaningless.
+#
+# Sources are chosen PER VARIANT: counting trig_pwl.c against naive_float (which
+# never calls it) or against a future CORDIC variant would inflate them with
+# dead code. Detected from what the variant's qr.c actually includes.
+algo_sources_for() {
+    srcs="src/common/matrix.c"
+    if grep -q 'trig_pwl\.h' "src/variants/$1/qr.c"; then
+        srcs="$srcs src/common/trig_pwl.c"
+    fi
+    echo "$srcs"
+}
 
 # --- build every variant x flagset ----------------------------------------
 FAILED=""
@@ -51,7 +65,7 @@ for v in $VARIANTS; do
         $CC $flags -Isrc/common -c "src/variants/$v/qr.c" -o "$OUT/${tag}_qr.o" \
             2>"$OUT/$tag.err"
         ok=1
-        for c in $COMMON; do
+        for c in $(algo_sources_for "$v"); do
             b=$(basename "$c" .c)
             # shellcheck disable=SC2086
             $CC $flags -Isrc/common -c "$c" -o "$OUT/${tag}_${b}.o" \

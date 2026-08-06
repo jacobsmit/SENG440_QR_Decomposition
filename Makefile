@@ -16,7 +16,12 @@ VARIANTS := naive_float fixed_scalar
 # Flag sets for the static analysis live in profiling/flagsets.sh -- single
 # source of truth, shared with arm_profile.sh. Do not duplicate them here.
 
-COMMON_SRC := src/common/matrix.c src/common/trig_pwl.c src/common/op_counters.c
+# ALGO_SRC is the algorithm under measurement -- what the static ARM analysis
+# counts. SUPPORT_SRC is test/report scaffolding, linked into the runnable
+# binaries but deliberately excluded from the instruction counts.
+ALGO_SRC    := src/common/matrix.c src/common/trig_pwl.c
+SUPPORT_SRC := src/common/matrix_f32.c src/common/op_counters.c
+COMMON_SRC  := $(ALGO_SRC) $(SUPPORT_SRC)
 COMMON_HDR := $(wildcard src/common/*.h)
 BUILD      := build
 
