@@ -18,23 +18,37 @@ The course asks for assembly work twice, and they are unrelated:
 
 ## What the measurements changed
 
-`fixed_simd32` cycle histogram, per QR (weights are still placeholders):
+`fixed_simd32`, **exact instruction counts per QR — no weights involved**:
 
-| class | instructions | cycles | share of cycles |
-|---|---:|---:|---:|
-| load | 462 | 1386 | **36.6 %** |
-| alu | 973 | 973 | **25.7 %** |
-| store | 297 | 594 | 15.7 % |
-| branch | 167 | 334 | 8.8 % |
-| mac_simd32 | 96 | 288 | 7.6 % |
-| mul | 21 | 63 | 1.7 % |
-| div | 5.9 | 71 | 1.9 % |
+| class | per QR | share of instructions |
+|---|---:|---:|
+| alu | 973.2 | **47.3 %** |
+| load | 462.0 | 22.5 % |
+| store | 296.9 | 14.4 % |
+| branch | 167.3 | 8.1 % |
+| mac_simd32 | 96.0 | 4.7 % |
+| mul | 20.9 | 1.0 % |
+| div | 5.9 | 0.3 % |
+| | **2056.3** | |
 
-**The arithmetic is 11 % of cycles.** Memory traffic is 52 %, loop control another 9 %.
+**The arithmetic SIMD32 optimised is 6.0 % of instructions.** Memory is 36.9 %, ALU 47.3 %,
+loop control 8.1 %.
 
-So the original premise — "hand-write the inner loops" — is aimed at the wrong thing. SIMD32 already
-solved the arithmetic (`mul` 42,589 → 4,189 over 200 QRs). What is left is **everything around** the
-arithmetic: loads, stores, loop control and call overhead.
+That is stated on counts deliberately. An earlier version of this document argued from *cycle*
+shares, which depend on the placeholder weights in `cycles.py` — those are guesses, not TRM figures,
+and no architectural decision should rest on them. The count-based version of the argument is both
+exact and stronger.
+
+### Which conclusions are safe to act on
+
+| conclusion | basis | safe? |
+|---|---|---|
+| SIMD32 cuts 2290 → 2058 instructions/QR (1.11×) | exact counts | **yes** |
+| Arithmetic is ~6 % of work, so target memory/ALU/loop next | exact counts | **yes** |
+| SIMD32 is also faster in *cycles* | modelled, but shown robust: SMLAD would have to cost >3× a multiply to flip it, and it replaces two multiplies plus an add | **yes** |
+| Fixed-point beats naive float | modelled, **flips** if an average VFP op costs 1.26–2.34 cycles — inside the plausible range | **no — needs TRM** |
+
+So the plan below rests only on the first three.
 
 And gcc's SIMD32 loop is already tight. It found a better pack than the `PKHBT` the plan assumed:
 

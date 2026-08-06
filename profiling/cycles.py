@@ -240,18 +240,27 @@ def main():
     mapped = sum(hist.values())
     unmapped_total = sum(unmapped.values())
 
-    print(f"{'class':<14}{'instructions':>14}{'cycles/instr':>14}{'cycles':>14}{'share':>8}")
-    print("-" * 64)
-    cycles = 0
+    # --- MEASURED: exact instruction counts, no assumptions -----------------
+    print("MEASURED (exact -- no weights involved)")
+    print(f"{'class':<14}{'instructions':>14}{'% of instrs':>13}")
+    print("-" * 41)
     for cls in sorted(hist, key=lambda c: -hist[c]):
+        print(f"{cls:<14}{hist[cls]:>14,}{100.0*hist[cls]/mapped:>12.1f}%")
+    print("-" * 41)
+    print(f"{'TOTAL':<14}{mapped:>14,}")
+
+    # --- MODELLED: depends entirely on weights that are still guesses --------
+    cycles = sum(hist[c] * CLASS_CYCLES[c] for c in hist)
+    print()
+    print("MODELLED (depends on the weights below -- NOT a measurement)")
+    print(f"{'class':<14}{'cycles/instr':>14}{'cycles':>14}{'% of cycles':>13}")
+    print("-" * 55)
+    for cls in sorted(hist, key=lambda c: -hist[c] * CLASS_CYCLES[c]):
         c = hist[cls] * CLASS_CYCLES[cls]
-        cycles += c
-        print(f"{cls:<14}{hist[cls]:>14,}{CLASS_CYCLES[cls]:>14}{c:>14,}")
-    print("-" * 64)
-    print(f"{'TOTAL':<14}{mapped:>14,}{'':>14}{cycles:>14,}")
-    if cycles and mapped:
-        print(f"{'':<14}{'':>14}{'':>14}{'':>14}  "
-              f"{cycles/mapped:.2f} cycles/instruction average")
+        print(f"{cls:<14}{CLASS_CYCLES[cls]:>14}{c:>14,}{100.0*c/cycles:>12.1f}%")
+    print("-" * 55)
+    print(f"{'TOTAL':<14}{'':>14}{cycles:>14,}   "
+          f"{cycles/mapped:.2f} cycles/instr avg")
 
     if unmapped_total:
         pct = 100.0 * unmapped_total / total
@@ -274,10 +283,13 @@ def main():
             print("   >5% unmapped -- the cycle total above is NOT trustworthy.")
             sys.exit(1)
 
-    print("\nWeights are PLACEHOLDERS from cycles.py -- replace with Cortex-A7 TRM")
-    print("figures before quoting any of this. Known model bias: partial")
-    print("dual-issue makes this an over-estimate; dependency stalls make it an")
-    print("under-estimate; cache effects are negligible for 4x4 matrices.")
+    print()
+    print("!! The weights are PLACEHOLDERS. Base decisions on the MEASURED table")
+    print("   unless a conclusion has been shown robust across a plausible weight")
+    print("   range. Replace them from the Cortex-A7 TRM before quoting cycles.")
+    print("   Model bias even with correct weights: partial dual-issue makes this")
+    print("   an over-estimate, dependency stalls an under-estimate; cache effects")
+    print("   are negligible for 4x4 matrices.")
 
 
 if __name__ == "__main__":
