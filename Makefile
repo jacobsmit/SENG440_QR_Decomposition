@@ -11,7 +11,7 @@
 # Adding a variant: create src/variants/<name>/qr.c and add <name> to VARIANTS.
 # ============================================================================
 
-VARIANTS := naive_float fixed_scalar
+VARIANTS := naive_float fixed_scalar fixed_simd32
 
 # Variants exposing a native float entry point (measured without fixed-point
 # conversion, since a naive implementation would never do that).
