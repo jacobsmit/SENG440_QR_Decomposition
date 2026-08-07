@@ -166,15 +166,14 @@ CG_ITERATIONS ?= 50
 #   make cycles VARIANT=fixed_scalar
 #   make cycles VARIANT=naive_float FLOAT=--float
 # ============================================================================
-LIBM := $(wildcard /usr/lib/arm-linux-gnueabihf/libm.so.6)
-LIBC := $(wildcard /usr/lib/arm-linux-gnueabihf/libc.so.6)
-# The dynamic linker executes inside the measured region (lazy PLT binding on
-# first call), so its instructions land in the histogram. Without the object
-# they cannot be decoded and show up as "unmapped", which invalidates the whole
-# cycle total. LD_BIND_NOW below resolves at startup instead, moving that work
-# outside the toggle; the object stays on the command line so any residue is
-# still decodable rather than silently dropped.
-LDSO := $(wildcard /lib/ld-linux-armhf.so.3)
+# Objects to disassemble come from ldd, not hardcoded paths. Any instruction
+# cycles.py cannot decode is dropped from the histogram, so a library the
+# binary actually loads but the Makefile forgot to name silently invalidates
+# the whole total -- which is exactly what happened to libm for naive_float.
+# ldd cannot forget, and it survives path changes across distributions.
+#
+# LD_BIND_NOW below resolves the PLT at startup so the dynamic linker's own
+# work lands outside the collect toggle rather than inside the measured region.
 
 cycles:
 	@if [ -z "$(VARIANT)" ]; then \
@@ -190,8 +189,12 @@ cycles:
 	   --quiet $(BUILD)/$(VARIANT)/profile $(CG_ITERATIONS) 8 $(FLOAT) \
 	   >/dev/null 2>$(BUILD)/callgrind/$(VARIANT).instr.log
 	@echo "=== $(VARIANT)$(if $(FLOAT), (float interface),): opcode histogram over $(CG_ITERATIONS) QRs ==="
-	@python3 profiling/cycles.py $(BUILD)/callgrind/$(VARIANT).instr \
-	   $(BUILD)/$(VARIANT)/profile $(LIBM) $(LIBC) $(LDSO)
+	@objs=$$(ldd $(BUILD)/$(VARIANT)/profile 2>/dev/null \
+	          | grep -oE '/[^ ]+\.so[^ ]*' | sort -u); \
+	 echo "objects: $(BUILD)/$(VARIANT)/profile $$objs" | tr ' ' '\n' \
+	   | sed 's|.*/||' | tr '\n' ' '; echo; echo; \
+	 python3 profiling/cycles.py $(BUILD)/callgrind/$(VARIANT).instr \
+	   $(BUILD)/$(VARIANT)/profile $$objs
 	@echo
 	@echo "Divide by $(CG_ITERATIONS) for per-QR figures."
 

@@ -88,8 +88,16 @@ yet sourced from the TRM — see `docs/PROJECT_TODO.md`.
 | branch | 6.6 % |
 | `mac_simd32` (SMLAD/SMUSDX) | 4.6 % |
 | stack | 2.3 % |
+| `simd_int` (NEON integer) | 1.6 % |
+| `fp_move` (VFP register traffic) | 1.3 % |
 | mul | 1.0 % |
 | div (SDIV) | 0.3 % |
+
+**No floating-point arithmetic**: `fp_add` and `fp_div` are both zero. The
+`fp_move` rows are gcc using VFP registers as spill space — register traffic,
+not computation — and `simd_int` is NEON *integer*, which the histogram used to
+report as FP because the data type lives in the mnemonic suffix (`vadd.i32` vs
+`vadd.f32`) and the suffix was being discarded.
 
 Memory is 36.0 % and arithmetic only 5.9 %, which is why the hand-assembly plan
 targets memory traffic rather than the arithmetic.

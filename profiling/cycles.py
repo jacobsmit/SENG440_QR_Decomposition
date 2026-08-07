@@ -240,7 +240,13 @@ def main():
                   # main binary silently misclassified ~50% of naive_float's
                   # instructions (they landed on whatever happened to sit at
                   # that address, mostly branches).
-    by_fn = {}    # normalised function name -> {offset: mnemonic}
+    by_fn = {}    # (object basename, normalised fn) -> {offset: mnemonic}
+                  # Keyed by object, not name alone: the main binary's PLT stub
+                  # "atan2f@plt" normalises to "atan2f" and collided with
+                  # libm's real atan2f. setdefault kept whichever was
+                  # disassembled first, so libm's function body was matched
+                  # against a 3-instruction stub (ldr/add/bx) -- inflating the
+                  # branch class and leaving the rest unmapped.
     for o in objs:
         funcs, absmap = disassemble(o)
         base = o.split("/")[-1]
@@ -248,7 +254,7 @@ def main():
         for a_, mn in absmap.items():
             by_abs[(base, a_)] = mn
         for f, offs in funcs.items():
-            by_fn.setdefault(norm(f), offs)
+            by_fn.setdefault((base, norm(f)), offs)
 
     # The callgrind format allows positions relative to the previous cost line.
     # Whether that running position is reset at an fn= boundary is not something
@@ -292,7 +298,7 @@ def main():
         obase = ob.split("/")[-1]
         mn = by_abs.get((obase, addr))
         if mn is None:
-            offs = by_fn.get(norm(fn))
+            offs = by_fn.get((ob.split("/")[-1], norm(fn)))
             if offs is not None:
                 mn = offs.get(addr - fn_base[(ob, fn)])
         if mn is None:
@@ -333,6 +339,24 @@ def main():
         print("   Supply the missing object(s) on the command line. Top offenders:")
         for k, v in sorted(unmapped.items(), key=lambda kv: -kv[1])[:8]:
             print(f"     {v:>12,}  {k}")
+
+        # Say WHICH of the three failure modes this is, rather than always
+        # blaming a missing object: the object may be supplied and the function
+        # still unresolvable.
+        supplied = {o.split("/")[-1] for o in objs}
+        refd = {k.rsplit("[", 1)[-1].rstrip("]") for k in unmapped}
+        absent = sorted(refd - supplied)
+        if absent:
+            print(f"\n   Objects referenced but NOT supplied: {', '.join(absent)}")
+        present_unknown = sorted({
+            k.split("+")[0] for k in unmapped
+            if k.rsplit("[", 1)[-1].rstrip("]") in supplied
+            and (k.rsplit("[", 1)[-1].rstrip("]"), norm(k.split("+")[0]))
+            not in by_fn})[:6]
+        if present_unknown:
+            print("   Supplied objects that lack the named function: "
+                  f"{', '.join(present_unknown)}")
+            print("   (IFUNC dispatch or a stripped object can cause this.)")
         # Key off the FUNCTION name, not the object: a wrong object attribution
         # (name-compression bug) also produces "[libc.so.6]" in these keys and
         # would trigger a misleading tail-call diagnosis.
