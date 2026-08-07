@@ -162,6 +162,13 @@ CG_ITERATIONS ?= 50
 # ============================================================================
 LIBM := $(wildcard /usr/lib/arm-linux-gnueabihf/libm.so.6)
 LIBC := $(wildcard /usr/lib/arm-linux-gnueabihf/libc.so.6)
+# The dynamic linker executes inside the measured region (lazy PLT binding on
+# first call), so its instructions land in the histogram. Without the object
+# they cannot be decoded and show up as "unmapped", which invalidates the whole
+# cycle total. LD_BIND_NOW below resolves at startup instead, moving that work
+# outside the toggle; the object stays on the command line so any residue is
+# still decodable rather than silently dropped.
+LDSO := $(wildcard /lib/ld-linux-armhf.so.3)
 
 cycles:
 	@if [ -z "$(VARIANT)" ]; then \
@@ -170,7 +177,7 @@ cycles:
 	  echo "ERROR: valgrind not installed"; exit 1; fi
 	@$(MAKE) -s $(BUILD)/$(VARIANT)/profile
 	@mkdir -p $(BUILD)/callgrind
-	@valgrind --tool=callgrind \
+	@LD_BIND_NOW=1 valgrind --tool=callgrind \
 	   --callgrind-out-file=$(BUILD)/callgrind/$(VARIANT).instr \
 	   --dump-instr=yes --collect-atstart=no \
 	   --toggle-collect=$(if $(FLOAT),qr_profiled_f32,qr_profiled) \
@@ -178,7 +185,7 @@ cycles:
 	   >/dev/null 2>$(BUILD)/callgrind/$(VARIANT).instr.log
 	@echo "=== $(VARIANT)$(if $(FLOAT), (float interface),): opcode histogram over $(CG_ITERATIONS) QRs ==="
 	@python3 profiling/cycles.py $(BUILD)/callgrind/$(VARIANT).instr \
-	   $(BUILD)/$(VARIANT)/profile $(LIBM) $(LIBC)
+	   $(BUILD)/$(VARIANT)/profile $(LIBM) $(LIBC) $(LDSO)
 	@echo
 	@echo "Divide by $(CG_ITERATIONS) for per-QR figures."
 

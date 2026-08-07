@@ -59,6 +59,14 @@ def build_table(f, lo, hi, p):
         approx = ((mq * xq) >> TRIG_Q) + cq
         worst = max(worst, np.max(np.abs(f(x) - approx / (1 << TRIG_Q))))
         entries.append((mq, cq))
+
+    # GUARD ENTRY. The top of the domain indexes one past the last segment:
+    # |ratio| == 1.0 gives idx == nseg for arctan, and that happens whenever
+    # |N| == |D|, which is common rather than exotic. Duplicating the final
+    # segment lets the evaluator drop its bounds clamp -- 4 bytes of ROM to
+    # remove a compare and a conditional move from EVERY evaluation. Same
+    # ROM-for-instructions trade the uniform segment width is built on.
+    entries.append(entries[-1])
     return entries, worst
 
 

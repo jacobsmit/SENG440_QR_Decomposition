@@ -11,8 +11,8 @@
    number of segments. Coefficients are packed b:m, one load. */
 #define PWL_INDEX_SHIFT (PWL_TRIG_Q - PWL_SEG_BITS)
 
-/* arctan: 16 segments of width 2^-4 over [0.0000, 1.0000], max error 0.000272 (coefficients quantised) */
-#define PWL_ARCTAN_SEGS 16
+/* arctan: 17 segments of width 2^-4 over [0.0000, 1.0000], max error 0.000272 (coefficients quantised) */
+#define PWL_ARCTAN_SEGS 17
 static const int32_t pwl_arctan[PWL_ARCTAN_SEGS] = {
     0x00003FEB, /* [0] m= 16363 b=     0 */
     0x00093F6C, /* [1] m= 16236 b=     9 */
@@ -30,10 +30,11 @@ static const int32_t pwl_arctan[PWL_ARCTAN_SEGS] = {
     0x0D4C2564, /* [13] m=  9572 b=  3404 */
     0x0F432325, /* [14] m=  8997 b=  3907 */
     0x11412105, /* [15] m=  8453 b=  4417 */
+    0x11412105, /* [16] m=  8453 b=  4417 */
 };
 
-/* sin: 13 segments of width 2^-4 over [0.0000, 0.7854], max error 0.000236 (coefficients quantised) */
-#define PWL_SIN_SEGS 13
+/* sin: 14 segments of width 2^-4 over [0.0000, 0.7854], max error 0.000236 (coefficients quantised) */
+#define PWL_SIN_SEGS 14
 static const int32_t pwl_sin[PWL_SIN_SEGS] = {
     0x00003FF5, /* [0] m= 16373 b=     0 */
     0x00043FB5, /* [1] m= 16309 b=     4 */
@@ -48,10 +49,11 @@ static const int32_t pwl_sin[PWL_SIN_SEGS] = {
     0x05C532B3, /* [10] m= 12979 b=  1477 */
     0x07843029, /* [11] m= 12329 b=  1924 */
     0x09182E0C, /* [12] m= 11788 b=  2328 */
+    0x09182E0C, /* [13] m= 11788 b=  2328 */
 };
 
-/* cos: 13 segments of width 2^-4 over [0.0000, 0.7854], max error 0.000325 (coefficients quantised) */
-#define PWL_COS_SEGS 13
+/* cos: 14 segments of width 2^-4 over [0.0000, 0.7854], max error 0.000325 (coefficients quantised) */
+#define PWL_COS_SEGS 14
 static const int32_t pwl_cos[PWL_COS_SEGS] = {
     0x4004FE00, /* [0] m=  -512 b= 16388 */
     0x4044FA02, /* [1] m= -1534 b= 16452 */
@@ -66,6 +68,7 @@ static const int32_t pwl_cos[PWL_COS_SEGS] = {
     0x4C51D8F5, /* [10] m= -9995 b= 19537 */
     0x4E71D5DE, /* [11] m=-10786 b= 20081 */
     0x502AD38E, /* [12] m=-11378 b= 20522 */
+    0x502AD38E, /* [13] m=-11378 b= 20522 */
 };
 
 #endif /* TRIG_PWL_TABLES_H */

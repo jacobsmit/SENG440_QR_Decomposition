@@ -13,18 +13,18 @@
  * No branch on the segment, so the cost does not grow with PWL_SEG_BITS -- that
  * is the whole point of uniform (power-of-two) segment widths.
  *
- * The clamp catches only the exact top of the domain (|x| == 1 for arctan,
- * pi/4 for sin/cos), where the index lands one past the last segment. Every
- * other input indexes in range by construction.
+ * No bounds check either. The top of the domain (|x| == 1 for arctan) indexes
+ * one past the last segment, and the generator emits a duplicate guard entry
+ * for exactly that slot -- so the clamp becomes 4 bytes of ROM instead of a
+ * compare and a conditional move on every evaluation. That case is not exotic:
+ * |ratio| == 1 whenever |N| == |D|.
  *
  * m * x cannot overflow int32: both are Q14 and bounded by 1.0 and pi/4
  * respectively, so the product stays under 2^29. No SMULL needed here, unlike
  * the rotation path.
  */
-static inline int32_t pwl_eval(const int32_t *tbl, int nseg, int32_t x) {
-  int idx = (int)(x >> PWL_INDEX_SHIFT);
-  if (idx >= nseg) idx = nseg - 1;
-  int32_t mb = tbl[idx];
+static inline int32_t pwl_eval(const int32_t *tbl, int32_t x) {
+  int32_t mb = tbl[x >> PWL_INDEX_SHIFT];
   int32_t m = (int16_t)(mb & 0xFFFF);
   int32_t b = (int16_t)(mb >> 16);
   OPC(mul);
@@ -36,7 +36,7 @@ int32_t arctan_fixed(int32_t X) {
   OPX(call_arctan);
   OPC(decisions);
   int32_t a = (X < 0) ? -X : X;
-  int32_t r = pwl_eval(pwl_arctan, PWL_ARCTAN_SEGS, a);
+  int32_t r = pwl_eval(pwl_arctan, a);
   return (X < 0) ? -r : r; /* arctan is odd */
 }
 
@@ -54,7 +54,7 @@ int32_t sin_fixed(int32_t X) {
     OPX(angle_folds);
     result = cos_fixed(PI_OVER_2_FIXED - abs_X);
   } else {
-    result = pwl_eval(pwl_sin, PWL_SIN_SEGS, abs_X);
+    result = pwl_eval(pwl_sin, abs_X);
   }
 
   return (X < 0) ? -result : result; /* sine is odd */
@@ -69,7 +69,7 @@ int32_t cos_fixed(int32_t X) {
     OPX(angle_folds);
     return sin_fixed(PI_OVER_2_FIXED - abs_X);
   }
-  return pwl_eval(pwl_cos, PWL_COS_SEGS, abs_X);
+  return pwl_eval(pwl_cos, abs_X);
 }
 
 /*

@@ -38,19 +38,26 @@ Add one: create `src/variants/<name>/qr.c` implementing `qr_decomposition()`
 Instructions per QR, measured with callgrind on the target:
 
 | variant | instr/QR | vs baseline | worst rel. error |
-|---|---:|---:|---:|
-| `naive_float` | 3512 | 1.00× | 0.14 % |
-| `fixed_scalar` | 2290 | 1.53× | 0.47 % |
-| `fixed_simd32` | 2058 | 1.71× | 0.30 % |
-| `fixed_asip` (est.) | ~1154 | ~3.0× | 0.30 % |
+|---|---:|---:|---:|---:|
+| `naive_float` | 3390.5 | 1.00× | 0.14 % |
+| `fixed_scalar` | 2350.7 | 1.44× | 0.47 % |
+| `fixed_simd32` | 2112.7 | 1.61× | 0.30 % |
+| `fixed_asip` (C model) | 2136.7 | 1.59× | 0.30 % |
 
-Instruction counts are from the 2-segment branch-select trig and are **stale**:
-the table-driven PWL replaced a compare chain with a shift and a load. Re-run
-`make compare` on the VM. The error column is current (`make pwl-sweep`).
+Measured together in one callgrind run at `CG_ITERATIONS=50`, so the columns are
+comparable to each other. They are **not** comparable to figures from before the
+table-driven PWL landed: `naive_float` moved 3.5 % between runs despite being
+untouched by that change, so something else in the measurement conditions
+differs and the cause is not yet identified. To get a true before/after, run
+both commits on the same machine in one sitting:
 
-`fixed_asip`'s figure is an estimate: `GIVENSQ` is not a real instruction, so
-that build compiles but cannot run. Its latency comes from the firmware and
-hardware designs, not from measurement.
+```sh
+git checkout HEAD~1 && make clean && make instr-all && git checkout main
+```
+
+`fixed_asip`'s row is the C reference model, not the instruction — it costs
+slightly MORE than `fixed_simd32` because of the extra call layer. The ASIP
+figure cannot be measured; it comes from the firmware and hardware designs.
 
 Caveat: the `naive_float` comparison is instruction counts, not cycles. Whether
 fixed point wins on *cycles* depends on Cortex-A7 VFP latencies, which are not
@@ -90,22 +97,33 @@ docs/            PROJECT_TODO.md (remaining work), NEW_INSTRUCTION_PLAN.md
 ## Trig accuracy
 
 The PWL unit is table driven with segments of width 2⁻ᴾ, so the segment index is
-one shift and the coefficients one load — **cost is O(1) in the segment count**,
-and accuracy is bought with table ROM rather than instructions.
+one shift and the coefficients one load — **cost is O(1) in the segment count**.
+42 segments cost what 4 would; accuracy is bought with table ROM.
+
+O(1) is not free, though. Against the previous *2-segment* trig it is about
++55 instructions/QR (2.6 %), because that version held its coefficients as
+immediates and so did no load and no unpacking. The trade is 34× the accuracy
+for 2.6 % of the instructions, which is worth taking — but it is a trade, not a
+win on both axes.
 
 | P | segments | table bytes | `fixed_scalar` rel. err | `fixed_simd32` rel. err |
 |---:|---:|---:|---:|---:|
-| 2 | 12 | 48 | 3.16 % | 3.05 % |
-| 3 | 22 | 88 | 1.07 % | 0.90 % |
-| **4** | **42** | **168** | **0.47 %** | **0.30 %** |
-| 5 | 84 | 336 | 0.41 % | 0.20 % |
-| 6 | 166 | 664 | 0.39 % | 0.19 % |
+| 2 | 12 | 60 | 3.16 % | 3.05 % |
+| 3 | 22 | 100 | 1.07 % | 0.90 % |
+| **4** | **42** | **180** | **0.47 %** | **0.30 %** |
+| 5 | 84 | 348 | 0.41 % | 0.20 % |
+| 6 | 166 | 676 | 0.39 % | 0.19 % |
 
 P = 4 is the knee. Past it the Q14 coefficients quantise before the
 approximation does, so the extra ROM buys almost nothing — which is why angles,
 ratios and sin/cos values are all Q14 and not the Q11 of the matrix data.
 
 The previous 2-segment, branch-selected trig gave 10.27 % / 10.23 %.
+
+The last table entry of each function is a duplicate guard: `|ratio| == 1`
+(i.e. `|N| == |D|`, common in these matrices) indexes one past the final
+segment. 4 bytes of ROM per function removes a bounds compare and a conditional
+move from every evaluation.
 
 ## Measurement rules
 
