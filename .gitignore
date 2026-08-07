@@ -3,7 +3,6 @@
 
 # build artifacts
 *.o
-*.s
 _profile_out/
 build/
 qr_demo
@@ -22,3 +21,8 @@ perf.data*
 # python
 __pycache__/
 *.pyc
+
+# ghdl
+tb_*
+*.cf
+*.o

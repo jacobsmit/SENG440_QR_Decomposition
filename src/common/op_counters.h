@@ -7,13 +7,11 @@
  * QEMU has no timing model, so wall-clock time here would measure the host.
  * These counts are exact and host-independent instead.
  *
- * Core counters mean the same thing in every variant, so they go in one
- * comparison table (CORDIC would show mul=0, shift_add=large; the scalar
- * variant shows mul=210, shift_add=0). Extras are variant-specific detail.
+ * Core counters mean the same thing in every variant so they share one table;
+ * extras are variant-specific detail.
  *
  * Loads and stores are NOT counted here -- the compiler decides those, so a
- * C-level counter would be fiction. They come from the disassembly analysis in
- * profiling/arm_profile.sh and profiling/cycles.py.
+ * C-level counter would be fiction. They come from profiling/arm_profile.sh.
  */
 
 #include <stdint.h>

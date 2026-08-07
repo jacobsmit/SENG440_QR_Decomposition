@@ -12,7 +12,7 @@
  * and costs one LSR regardless of how many segments there are. Coefficients are
  * (slope, intercept) packed into one 32-bit word, so the fetch is one load.
  * Accuracy is therefore bought with table ROM, not with instructions -- see
- * scripts/trig_approx_parameters/gen_pwl_tables.py, which emits the table.
+ * scripts/gen_pwl_tables.py, which emits the table.
  *
  * FORMATS -- deliberately NOT the Q11 of fixed.h:
  *   angle                     Q14

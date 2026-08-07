@@ -95,16 +95,15 @@ static inline int32_t givensq(int32_t opposite, int32_t adjacent) {
 #endif
 
 /*
- * KNOWN SPEC MISMATCH -- settle before writing the VHDL.
+ * OPEN EDGE CASE: (opposite == 0, adjacent == 0).
  *
- * docs/NEW_INSTRUCTION_PLAN.md says (opposite==0, adjacent==0) should give an
- * identity rotation. The software does not: calculate_arctan_ratio(0,0) takes
- * the D==0 branch and returns +pi/2, giving a 90-degree rotation instead.
+ * calculate_arctan_ratio(0,0) takes the D==0 branch and returns +pi/2, so the
+ * result is a 90-degree rotation rather than the identity. Harmless -- still
+ * orthogonal, and R[i][j] is zeroed afterwards -- and rare, 0.06 times per QR.
  *
- * The reference model reproduces the SOFTWARE behaviour so fixed_asip stays
- * bit-identical to fixed_simd32. It is harmless (still orthogonal, and R[i][j]
- * is zeroed afterwards) and rare -- the guard fires 0.06 times per QR -- but the
- * C model, the microcode and the VHDL must all agree on whichever is chosen.
+ * All four implementations now follow this behaviour: the software model here,
+ * givensq_fw.c, givensq_fw.S, and the VHDL (via hw/vectors.txt). Changing it
+ * means changing all four together. See docs/PROJECT_TODO.md.
  */
 
 #endif /* GIVENSQ_H */

@@ -97,4 +97,4 @@ print(f"CSD 3-term shift-add equiv    {csd_cost:8,.0f} GE   "
       f"({csd_cost / mult_cost:.2f}x the multiplier)")
 print()
 print(f"reciprocal-LUT divider adds   {recip_extra:8,.0f} GE "
-      f"(+{100 * recip_extra / total:.0f}% area) to save 11 of 19 clocks")
+      f"(+{100 * recip_extra / total:.0f}% area) to save 11 of 20 clocks")

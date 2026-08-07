@@ -4,9 +4,8 @@
  * Built once per variant and linked against whichever qr.c is under test, so
  * every implementation is profiled on identical work with identical data.
  *
- * Replaces clock()-based timing, which cannot work on this target: the
- * Cortex-A7 is emulated by QEMU, which has no timing model (see
- * docs/TARGET_PLATFORM.md section 4).
+ * Wall-clock timing cannot work here: the Cortex-A7 is emulated by QEMU, which
+ * has no timing model, so time in the guest measures the host.
  *
  * Usage: profile_ops [iterations] [magnitude] [--csv]
  */
@@ -26,13 +25,9 @@ static int32_t next_entry(int32_t mag) {
   return (int32_t)((rng_state >> 16) % (uint32_t)(2 * mag + 1)) - mag;
 }
 
-/* Dedicated, non-recursive, non-inlined toggle targets for callgrind.
- *
- * Toggling on qr_decomposition itself went wrong for naive_float: its
- * qr_decomposition is a wrapper around qr_decomposition_f32, callgrind reported
- * it as recursive (qr_decomposition'2), the collect toggle came unbalanced, and
- * ~560 instructions/QR of printf, malloc and dynamic-linker work leaked into the
- * total. These wrappers are unambiguous and never recursive. */
+/* Dedicated, non-recursive, non-inlined toggle targets for callgrind. Toggling
+   on qr_decomposition itself breaks for naive_float, where it is a wrapper and
+   callgrind reports it as recursive, leaving the collect toggle unbalanced. */
 __attribute__((noinline)) void qr_profiled(const int32_t *A, int32_t *Q,
                                            int32_t *R) {
   qr_decomposition(A, Q, R);

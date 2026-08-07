@@ -2,11 +2,11 @@
 # Accuracy/cost curve for the PWL tables: regenerate at each segment width,
 # rebuild, and run the accuracy suite. Restores the committed table on exit.
 #
-# Usage: scripts/trig_approx_parameters/pwl_sweep.sh [p ...]
+# Usage: scripts/pwl_sweep.sh [p ...]
 set -e
-cd "$(dirname "$0")/../.."
+cd "$(dirname "$0")/.."
 
-GEN=scripts/trig_approx_parameters/gen_pwl_tables.py
+GEN=scripts/gen_pwl_tables.py
 TBL=src/common/trig_pwl_tables.h
 SAVE=$(mktemp)
 cp "$TBL" "$SAVE"

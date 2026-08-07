@@ -1,14 +1,8 @@
 # ============================================================================
 # SENG 440 QR Decomposition -- variant x flagset build matrix
 #
-#   make test-all        accuracy suite for every variant  (portable)
-#   make profile-all     operation counts for every variant (portable)
-#   make static-all      static instruction counts per flagset (needs ARM gcc)
-#   make compare         build/summary.csv for the report tables
-#   make asm VARIANT=x   -S listings for inspection
-#   make clean
-#
-# Adding a variant: create src/variants/<name>/qr.c and add <name> to VARIANTS.
+# See `make help`. Adding a variant: create src/variants/<name>/qr.c and add
+# <name> to VARIANTS below.
 # ============================================================================
 
 VARIANTS := naive_float fixed_scalar fixed_simd32 fixed_asip
@@ -48,36 +42,29 @@ endif
 
 WARN := -Wall -Wextra
 
-# Measurement-build only. The qr_profiled() wrappers exist so callgrind can
-# toggle collection on a known, non-recursive symbol. At -O2 gcc turns them
-# into TAIL CALLS ("b qr_decomposition" instead of push/bl/pop) -- callgrind
-# then sees the function entered but never left, so --toggle-collect never
-# switches collection back off and printf/malloc/libc pour into the totals.
-# Disabling sibling-call optimisation keeps the return visible.
-# Costs 3 instructions per measured call (~0.1%), inside the measured region.
+# Measurement build only. At -O2 gcc turns the qr_profiled() wrappers into tail
+# calls, and callgrind then never sees them return, so --toggle-collect leaves
+# collection on and libc pours into the totals. Costs ~0.1%.
 PROFILE_CFLAGS := -fno-optimize-sibling-calls
 
-.PHONY: all test-all test-parser test-firmware check-tables hw-pkg hw-vectors hw-sim hw-gates profile-all static-all instr-all instr-detail cycles asip-asm compare clean help asm pwl-tables pwl-sweep
+.PHONY: all test-all test-firmware check-tables hw-pkg hw-vectors hw-sim hw-gates profile-all static-all instr-all instr-detail cycles asip-asm compare clean help asm pwl-tables pwl-sweep
 .PHONY: $(addprefix test-,$(VARIANTS)) $(addprefix profile-,$(VARIANTS))
 
 all: test-all
 
 help:
-	@echo "targets: test-all profile-all static-all instr-all instr-detail cycles asip-asm compare asm clean"
-	@echo "variants: $(VARIANTS)"
-	@echo "flagsets: (see profiling/flagsets.sh)"
+	@echo "software:  test-all compare profile-all instr-all instr-detail static-all asm"
+	@echo "asip:      asip-asm givensq-asm test-firmware"
+	@echo "hardware:  hw-sim hw-gates hw-pkg hw-vectors"
+	@echo "tables:    pwl-tables P=n  pwl-sweep  check-tables"
+	@echo "variants:  $(VARIANTS)"
+	@echo "flagsets:  (see profiling/flagsets.sh)"
 
 ITERATIONS ?= 1000
 MAGNITUDE  ?= 8
 
-# ============================================================================
-# Per-variant rules.
-#
-# Generated explicitly rather than with a pattern rule: GNU make excludes
-# .PHONY targets from implicit/pattern rule matching, so "test-%: ..." silently
-# does nothing once test-<variant> is declared PHONY (verified on make 3.81,
-# which is what macOS ships). Explicit rules avoid the conflict entirely.
-# ============================================================================
+# Per-variant rules, generated explicitly: GNU make excludes .PHONY targets
+# from pattern-rule matching, so "test-%:" would silently do nothing.
 define VARIANT_RULES
 
 $(BUILD)/$(1)/test: src/variants/$(1)/qr.c $(COMMON_SRC) $(COMMON_HDR) tests/test_qr_accuracy.c
@@ -100,17 +87,8 @@ endef
 
 $(foreach v,$(VARIANTS),$(eval $(call VARIANT_RULES,$(v))))
 
-# Depend on the per-variant targets rather than looping in the shell: each
-# test-<variant> exits non-zero on failure, so make aborts before the success
-# banner can print. Correct by construction -- no shell flag to get wrong.
-# (An earlier shell-loop version printed "ALL VARIANTS PASS" while sub-makes
-# were failing, which is precisely the bug this suite exists to prevent.)
-# The callgrind parser has broken silently four times, each time producing a
-# plausible-looking but wrong histogram. Cheap to check, so it runs with the
-# accuracy suite rather than only when someone remembers.
-test-parser:
-	@python3 profiling/test_cycles_parser.py
-
+# Dependencies rather than a shell loop, so a failing variant aborts make
+# before the success banner can print.
 # The firmware model is the specification givensq_fw.S must match bit-for-bit,
 # so its own correctness is checked before any of the microcode claims rest on
 # it: the restoring divider against exact division, and the coefficients
@@ -133,12 +111,11 @@ test-firmware: $(BUILD)/givensq_fw/test
 	@$<
 
 # The C, VHDL and ARM-assembly coefficient tables must be identical or the
-# three implementations are not the same thing. They drifted once; this makes
-# that loud instead of silent.
+# three implementations are not the same thing. They drifted once.
 check-tables:
 	@python3 scripts/check_tables_agree.py
 
-test-all: test-parser check-tables test-firmware $(addprefix test-,$(VARIANTS))
+test-all: check-tables test-firmware $(addprefix test-,$(VARIANTS))
 	@echo "=========================================="
 	@echo " ALL VARIANTS PASS"
 	@echo "=========================================="
@@ -167,76 +144,14 @@ asm:
 	   && echo "  wrote $(BUILD)/$(VARIANT)/asm/qr.$$fs.s"; \
 	 done
 
-# ============================================================================
-# CSV summary for the report
-# ============================================================================
-# ============================================================================
-# Exact dynamic instruction counts (callgrind). This is the metric that shows
-# whether an optimisation worked for EVERY kind of change -- including inline
-# assembly and loop unrolling, which alter the instruction stream without
-# changing operation counts and are therefore invisible in the op-count table.
-#
-# Slow: callgrind instruments every instruction, on top of QEMU's own overhead.
-# Hence the much smaller default iteration count -- the per-QR figure is
-# deterministic, so a small sample is enough.
-# ============================================================================
+# Exact dynamic instruction counts under callgrind. Slow (instrumentation on
+# top of QEMU), but the per-QR figure is deterministic so a small sample is
+# enough.
 CG_ITERATIONS ?= 50
 
-# Per-function breakdown: where do the instructions actually go? Answers
-# "is the bottleneck the trig or the rotations", which decides which
-# optimisation to do first.
-# ============================================================================
-# Cycle estimate: exact dynamic OPCODE histogram, weighted by Cortex-A7
-# latencies. Answers "is this actually faster", which instruction counts
-# cannot -- an SDIV is not a MOV.
-#
-#   make cycles VARIANT=fixed_scalar
-#   make cycles VARIANT=naive_float FLOAT=--float
-# ============================================================================
-# Objects to disassemble come from ldd, not hardcoded paths. Any instruction
-# cycles.py cannot decode is dropped from the histogram, so a library the
-# binary actually loads but the Makefile forgot to name silently invalidates
-# the whole total -- which is exactly what happened to libm for naive_float.
-# ldd cannot forget, and it survives path changes across distributions.
-#
-# LD_BIND_NOW below resolves the PLT at startup so the dynamic linker's own
-# work lands outside the collect toggle rather than inside the measured region.
-
-cycles:
-	@if [ -z "$(VARIANT)" ]; then \
-	  echo "usage: make cycles VARIANT=<name> [FLOAT=--float]"; exit 2; fi
-	@if ! command -v valgrind >/dev/null 2>&1; then \
-	  echo "ERROR: valgrind not installed"; exit 1; fi
-	@$(MAKE) -s $(BUILD)/$(VARIANT)/profile
-	@mkdir -p $(BUILD)/callgrind
-	@LD_BIND_NOW=1 valgrind --tool=callgrind \
-	   --callgrind-out-file=$(BUILD)/callgrind/$(VARIANT).instr \
-	   --dump-instr=yes --collect-atstart=no \
-	   --toggle-collect=$(if $(FLOAT),qr_profiled_f32,qr_profiled) \
-	   --quiet $(BUILD)/$(VARIANT)/profile $(CG_ITERATIONS) 8 $(FLOAT) \
-	   >/dev/null 2>$(BUILD)/callgrind/$(VARIANT).instr.log
-	@echo "=== $(VARIANT)$(if $(FLOAT), (float interface),): opcode histogram over $(CG_ITERATIONS) QRs ==="
-	@objs=$$(ldd $(BUILD)/$(VARIANT)/profile 2>/dev/null \
-	          | grep -oE '/[^ ]+\.so[^ ]*' | sort -u); \
-	 echo "objects: $(BUILD)/$(VARIANT)/profile $$objs" | tr ' ' '\n' \
-	   | sed 's|.*/||' | tr '\n' ' '; echo; echo; \
-	 python3 profiling/cycles.py $(BUILD)/callgrind/$(VARIANT).instr \
-	   $(BUILD)/$(VARIANT)/profile $$objs
-	@echo
-	@echo "Divide by $(CG_ITERATIONS) for per-QR figures."
-
-# ============================================================================
-# The custom instruction, instantiated for real.
-#
-# Produces an assembly listing containing "GIVENSQ Rd, Rn, Rm" and stops. The
-# assembler has no opcode for it, so this can never be linked -- Lesson 100:
-# "You cannot assemble such code, since the assembler cannot allocate an
-# operation code for EXECUTE_B". The failure is the expected outcome and is
-# demonstrated, not hidden.
-#
-# The runnable, accuracy-tested build of the same variant uses the C reference
-# model instead (plain `make test-fixed_asip`).
-# ============================================================================
+# Instantiate the custom instruction for real: emits a listing containing
+# "GIVENSQ Rd, Rn, Rm", then shows the assembler rejecting it. Lesson 100 says
+# that rejection is the expected outcome, so it is demonstrated, not hidden.
 asip-asm:
 	@if [ -z "$(ARM_CC)" ]; then echo "ERROR: no ARM toolchain."; exit 1; fi
 	@mkdir -p $(BUILD)/fixed_asip
@@ -375,18 +290,18 @@ compare:
 P ?= 4
 
 pwl-tables:
-	@python3 scripts/trig_approx_parameters/gen_pwl_tables.py $(P) \
+	@python3 scripts/gen_pwl_tables.py $(P) \
 	    > src/common/trig_pwl_tables.h
 	@echo "regenerated src/common/trig_pwl_tables.h at P=$(P)"
 	@grep -m1 'summary' src/common/trig_pwl_tables.h || true
 
 pwl-sweep:
-	@./scripts/trig_approx_parameters/pwl_sweep.sh
+	@./scripts/pwl_sweep.sh
 
 # Regenerate the firmware assembly from the CSD table. Generated, not hand
 # typed, so the 45 segment routines cannot drift from the C model's tables.
 givensq-asm:
-	@python3 scripts/trig_approx_parameters/gen_givensq_asm.py \
+	@python3 scripts/gen_givensq_asm.py \
 	    > src/common/givensq_fw.S
 	@echo "regenerated src/common/givensq_fw.S"
 	@if [ -n "$(ARM_CC)" ]; then \
@@ -412,9 +327,9 @@ GHDL ?= ghdl
 GHDL_FLAGS := --std=08 --workdir=$(BUILD)/ghdl
 
 hw-pkg:
-	@python3 scripts/trig_approx_parameters/gen_csd_header.py > src/common/trig_pwl_csd.h
-	@python3 scripts/trig_approx_parameters/gen_vhdl_pkg.py > hw/givensq_pkg.vhd
-	@python3 scripts/trig_approx_parameters/gen_givensq_asm.py > src/common/givensq_fw.S
+	@python3 scripts/gen_csd_header.py > src/common/trig_pwl_csd.h
+	@python3 scripts/gen_vhdl_pkg.py > hw/givensq_pkg.vhd
+	@python3 scripts/gen_givensq_asm.py > src/common/givensq_fw.S
 	@echo "regenerated the C header, the VHDL package and the ARM assembly"
 	@python3 scripts/check_tables_agree.py
 

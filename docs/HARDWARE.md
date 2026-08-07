@@ -40,7 +40,7 @@ Three properties worth stating in the report:
   still interleaves them across issue slots; the hardware genuinely overlaps.
 - **No branch anywhere in the datapath.** Segment selection is a ROM address
   and the `|x| > pi/4` fold is a mux, so there is nothing to mispredict — the
-  data-dependent branches that cost the software ~28 decisions per QR simply do
+  data-dependent branches the software spends on segment selection simply do
   not exist here.
 - **The unit is stateless between invocations.** Nothing is retained, so there
   is no question about masking interrupts or restoring unit state after an
@@ -134,9 +134,9 @@ QR (`make instr-detail`) over 6 rotations = **160.7 instructions per rotation**.
 Hardware against firmware: **5.05×** over 1 slot, **3.4×** over 2 slots.
 
 Instruction-for-cycle parity is assumed above, which *understates* the hardware:
-the software mix averages ~1.87 cycles/instruction under the model in
-`profiling/cycles.py`, which would put hardware at ~15×. That model still uses
-placeholder weights, so the conservative figure is the one quoted.
+a software instruction on an in-order A7 averages more than one cycle, so the
+true ratio is higher. Quoting a cycle figure would need Cortex-A7 TRM
+latencies, so the conservative instruction-parity number is the one used.
 
 ### Whole-program effect
 
