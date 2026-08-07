@@ -115,10 +115,19 @@ test-parser:
 # so its own correctness is checked before any of the microcode claims rest on
 # it: the restoring divider against exact division, and the coefficients
 # against the two invariants that define a Givens rotation.
-$(BUILD)/givensq_fw/test: tests/test_givensq_fw.c src/common/givensq_fw.c $(COMMON_SRC) $(COMMON_HDR)
+# The .S only builds on the ARM target; off-target the suite still checks the C
+# model, and says out loud that the assembly comparison was skipped rather than
+# quietly reporting success.
+ifneq (,$(filter armv7l armv6l,$(UNAME_M)))
+  FW_ASM := src/common/givensq_fw.S
+else
+  FW_ASM :=
+endif
+
+$(BUILD)/givensq_fw/test: tests/test_givensq_fw.c src/common/givensq_fw.c $(FW_ASM) $(COMMON_SRC) $(COMMON_HDR)
 	@mkdir -p $(dir $@)
 	$(CC) $(WARN) $(PORTABLE_CFLAGS) -o $@ \
-	    tests/test_givensq_fw.c src/common/givensq_fw.c $(COMMON_SRC) -lm
+	    tests/test_givensq_fw.c src/common/givensq_fw.c $(FW_ASM) $(COMMON_SRC) -lm
 
 test-firmware: $(BUILD)/givensq_fw/test
 	@$<
@@ -367,6 +376,19 @@ pwl-tables:
 
 pwl-sweep:
 	@./scripts/trig_approx_parameters/pwl_sweep.sh
+
+# Regenerate the firmware assembly from the CSD table. Generated, not hand
+# typed, so the 45 segment routines cannot drift from the C model's tables.
+givensq-asm:
+	@python3 scripts/trig_approx_parameters/gen_givensq_asm.py \
+	    > src/common/givensq_fw.S
+	@echo "regenerated src/common/givensq_fw.S"
+	@if [ -n "$(ARM_CC)" ]; then \
+	  $(ARM_CC) -c -marm -march=armv7-a -o $(BUILD)/givensq_fw.o \
+	      src/common/givensq_fw.S && \
+	  echo "  assembles clean; mul/div instructions: $$($(ARM_DUMP) -d \
+	      $(BUILD)/givensq_fw.o | grep -ciE '\\b(mul|mla|smull|umull|sdiv|udiv)\\b')"; \
+	fi
 
 clean:
 	rm -rf $(BUILD) profiling/_profile_out

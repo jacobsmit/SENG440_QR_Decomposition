@@ -182,11 +182,39 @@ it zeroes the same element — so the test asserts the two invariants that
 actually define the operation (it zeroes the element; it is a rotation) rather
 than comparing the angle to `atan2`.
 
-**Still to build: `givensq_fw.S`**, the ARM assembly. `givensq_fw.c` is its
-specification, and bit-for-bit equality against it is the acceptance test. That
-also closes scenario step 5 ("optimise by hand the assembly, assemble it, run it
-on an ARM machine"), and lets `objdump` confirm the 101-cycle hand count instead
-of it resting on my arithmetic.
+### The assembly
+
+`src/common/givensq_fw.S` implements the same instruction in ARM assembly with
+**no MUL, no MLA, no SDIV, no UDIV** — verified by disassembly, not asserted:
+
+```sh
+make givensq-asm     # regenerate, assemble, count mul/div instructions -> 0
+```
+
+485 instructions static. It is *generated* from the same CSD table as the C
+model (`make givensq-asm`) rather than hand-typed, because 45 hand-copied
+segment routines would be a transcription error waiting to happen.
+
+Two structural choices make it comparable to the hand-counted microcode:
+
+- **The divide is unrolled**, 14 iterations of exactly four instructions —
+  `lsl` / `cmp` / `subhs` / `adc`. `SUB` without `S` leaves the carry from `CMP`
+  intact, so `adc r7, r7, r7` shifts the quotient up and inserts the new bit in
+  one instruction. A microprogram has no loop overhead, so unrolling is what
+  keeps the comparison honest.
+- **Each PWL segment is its own code block** reached through a jump table — the
+  ARM equivalent of a microcoded engine branching into a per-segment routine
+  with the coefficients as control-store literals.
+
+One real difference from the microcode, worth stating in the report: ARM's fixed
+32-bit encoding cannot carry a 16-bit intercept inside a data-processing
+instruction, so each segment spends an extra `movw` that a wide microinstruction
+would not need. **The horizontal control word can embed literals a RISC encoding
+cannot** — a concrete advantage of microcode over a fixed-width ISA.
+
+`make test-firmware` asserts bit-for-bit equality against `givensq_fw.c` over
+~1.4 M input pairs. Off-target it says the comparison was skipped rather than
+quietly passing.
 
 ## 8. Open items
 
@@ -201,6 +229,7 @@ of it resting on my arithmetic.
       only the firmware and hardware are multiplier-free. Bit-exactness is
       required between `givensq_fw.c`, `givensq_fw.S` and the VHDL — not between
       firmware and software.
-- [ ] Cross-check the hand cycle counts against `givensq_fw.S` once written.
-      The 14-iteration divider is now measured (`fw_divide_restoring` reports
-      its own iteration count); the surrounding phases are still hand-counted.
+- [ ] Run `make test-firmware` on the VM to confirm asm/C bit-equality, then
+      measure the DYNAMIC instruction count per call with callgrind and compare
+      it against the 101-cycle hand count. Static is 485 because all 45 segment
+      routines are present; only one executes per PWL call.

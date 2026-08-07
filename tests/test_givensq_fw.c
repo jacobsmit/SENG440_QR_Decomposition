@@ -53,6 +53,24 @@ static int check_divider(void){
   return bad!=0;
 }
 
+#if defined(__arm__)
+/* The whole point of the assembly: same answers, no multiplier, no divider.
+   Bit-exact or it is not an implementation of the specification. */
+static int check_asm(void){
+  long bad=0,n=0;
+  for(int o=-2048;o<=2048;o+=3) for(int a=-2048;a<=2048;a+=5){
+    int32_t got=givensq_fw_asm(o,a), want=givensq_fw(o,a);
+    if(got!=want){
+      if(bad<5) printf("    o=%5d a=%5d asm=%08x c=%08x\n",o,a,
+                       (unsigned)got,(unsigned)want);
+      bad++; }
+    n++; }
+  printf("  %-22s %ld cases, %ld mismatches  %s\n","asm vs C model",n,bad,
+         bad?"**FAIL**":"PASS");
+  return bad!=0;
+}
+#endif
+
 int main(void){
   int fail=check_divider();
   check("givensq_fw (firmware)",givensq_fw);
@@ -60,6 +78,12 @@ int main(void){
   /* Tolerances from the measured PWL error: the firmware's CSD-constrained
      slopes are ~2x the software's, so ~0.0007 residual is expected, not a bug. */
   fail |= worst_resid("givensq_fw",givensq_fw,0.0015);
+#if defined(__arm__)
+  fail |= check_asm();
+  fail |= worst_resid("givensq_fw_asm",givensq_fw_asm,0.0015);
+#else
+  puts("  (asm equivalence skipped: not an ARM host -- run on the VM)");
+#endif
   puts(fail?"\n GIVENSQ FIRMWARE: FAIL":"\n GIVENSQ FIRMWARE: PASS");
   return fail;
 }
