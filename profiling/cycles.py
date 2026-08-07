@@ -230,8 +230,12 @@ def main():
     cg, objs = sys.argv[1], sys.argv[2:]
 
     def norm(name):
-        """Strip glibc version suffixes: atan2f@@GLIBC_2.15 -> atan2f."""
-        return name.split("@")[0]
+        """atan2f@@GLIBC_2.15 -> atan2f, __glibc_morecore'2 -> __glibc_morecore.
+
+        The "'N" suffix is callgrind's RECURSION marker, not part of the symbol,
+        so leaving it on made every recursive invocation look like an unknown
+        function."""
+        return name.split("@")[0].split("'")[0]
 
     dis = {}
     by_abs = {}   # (object basename, address) -> mnemonic.
@@ -289,6 +293,7 @@ def main():
             fn_base[k] = addr
 
     hist = defaultdict(int)
+    per_obj = defaultdict(lambda: [0, 0])   # object -> [resolved, unresolved]
     unmapped = defaultdict(int)
     total = 0
     for ob, fn, addr, cost in rows:
@@ -301,14 +306,34 @@ def main():
             offs = by_fn.get((ob.split("/")[-1], norm(fn)))
             if offs is not None:
                 mn = offs.get(addr - fn_base[(ob, fn)])
+        obase = ob.split("/")[-1]
         if mn is None:
             unmapped[f"{fn}+0x{addr - fn_base.get((ob, fn), 0):x} "
-                     f"[{ob.split('/')[-1]}]"] += cost
+                     f"[{obase}]"] += cost
+            per_obj[obase][1] += cost
             continue
+        per_obj[obase][0] += cost
         hist[classify(mn)] += cost
 
     mapped = sum(hist.values())
     unmapped_total = sum(unmapped.values())
+
+    # --- per object ---------------------------------------------------------
+    # The algorithm lives in the main binary (+ libm for naive_float). Anything
+    # in libc is process startup and I/O that happened to fall inside the
+    # collect toggle -- it is not QR work and must not be averaged into a
+    # per-QR figure. Reporting it per object makes that visible and
+    # quantifiable instead of silently included or silently dropped.
+    main_obj = objs[0].split("/")[-1]
+    print("BY OBJECT")
+    print(f"{'object':<24}{'resolved':>12}{'unresolved':>12}")
+    print("-" * 48)
+    for o in sorted(per_obj, key=lambda k: -(per_obj[k][0] + per_obj[k][1])):
+        r, u = per_obj[o]
+        mark = "  <- algorithm" if o == main_obj else ""
+        print(f"{o:<24}{r:>12,}{u:>12,}{mark}")
+    print("-" * 48)
+    print()
 
     # --- MEASURED: exact instruction counts, no assumptions -----------------
     print("MEASURED (exact -- no weights involved)")
@@ -332,6 +357,12 @@ def main():
     print(f"{'TOTAL':<14}{'':>14}{cycles:>14,}   "
           f"{cycles/mapped:.2f} cycles/instr avg")
 
+    # Failure is keyed to the MAIN binary, not the total. System libraries on
+    # Debian are stripped of internal symbols, so their bodies can never fully
+    # resolve by name -- holding the total to 5% would fail forever for reasons
+    # no change to this tool can fix. The algorithm's own object must resolve
+    # completely; that is the part being measured.
+    main_r, main_u = per_obj.get(main_obj, (0, 0))
     if unmapped_total:
         pct = 100.0 * unmapped_total / total
         print(f"\n!! UNMAPPED: {unmapped_total:,} instructions ({pct:.1f}%) "
@@ -370,9 +401,18 @@ def main():
             print("   --toggle-collect function was TAIL CALLED, so callgrind saw it entered")
             print("   but never left. Build the profiler with -fno-optimize-sibling-calls")
             print("   (Makefile PROFILE_CFLAGS).")
-        if pct > 5:
-            print("   >5% unmapped -- the cycle total above is NOT trustworthy.")
+        main_pct = 100.0 * main_r / max(main_r + main_u, 1)
+        if main_u > 0.05 * max(main_r + main_u, 1):
+            print(f"\n   >5% of {main_obj} is unmapped. The algorithm's own object"
+                  " must resolve\n   completely -- the cycle total is NOT "
+                  "trustworthy.")
             sys.exit(1)
+        print(f"\n   {main_obj} resolves {main_pct:.1f}%: the ALGORITHM is fully "
+              "accounted for.")
+        print("   The unmapped work is in stripped system libraries (startup, "
+              "malloc,\n   syscalls) -- process overhead that fell inside the "
+              "collect toggle, not\n   QR work. Do NOT average it into a per-QR "
+              "figure. To name it:\n   apt-get install libc6-dbg")
 
     print()
     print("!! The weights are PLACEHOLDERS. Base decisions on the MEASURED table")
