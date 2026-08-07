@@ -74,15 +74,15 @@ One micro-operation per microinstruction, strictly in order.
 | phase | micro-operations | cycles |
 |---|---|---:|
 | operand prep | `|o|`, `|a|` (2 each), `a==0` guard, compare, conditional swap of N/D, record swap flag | 8 |
-| **restoring divide** | 15 iterations × (`R<<1`; `CMP R,D`; `SUBHS R,R,D`; `ADC Q,Q,Q`) | **60** |
+| **restoring divide** | 14 iterations × (`R<<1`; `CMP R,D`; `SUBHS R,R,D`; `ADC Q,Q,Q`) | **56** |
 | arctan PWL | `idx = ratio >> 10`; micro-branch; 3 shift-adds; `+ b` | 6 |
 | quadrant fix-up | conditional `±pi/2 - angle`, restore ratio sign | 5 |
 | cos PWL | `|angle|`, compare `pi/4`, conditional fold, `idx`, micro-branch, 3 shift-adds, `+ b` | 11 |
 | sin PWL | as cos, plus odd-function sign restore | 13 |
 | pack | `s << 16`, `ORR` with `c & 0xFFFF` | 2 |
-| | **total** | **105** |
+| | **total** | **101** |
 
-**The divide is 60 of 105 cycles — 57 % of the instruction.** Everything else
+**The divide is 56 of 101 cycles — 55 % of the instruction.** Everything else
 put together is smaller than the divider. That single fact drives both the
 horizontal schedule below and the hardware design.
 
@@ -94,7 +94,7 @@ Ideal speed-up is 2×. What actually parallelises:
 - **The divide does not.** Each iteration's remainder depends on the previous
   one; this is a serial dependency chain and no amount of issue width shortens
   it. Only the quotient-bit accumulate of iteration *i* can overlap the shift of
-  iteration *i+1*. 60 → 45, and slot 2 is a NOP for most of it.
+  iteration *i+1*. 56 → 42, and slot 2 is a NOP for most of it.
 - **arctan PWL** — the three shifted operands are independent even though the
   additions form a chain, so compute the shifts in parallel and sum as a tree.
   6 → 4.
@@ -106,14 +106,14 @@ Ideal speed-up is 2×. What actually parallelises:
 | phase | 1 slot | 2 slots |
 |---|---:|---:|
 | operand prep | 8 | 5 |
-| restoring divide | 60 | 45 |
+| restoring divide | 56 | 42 |
 | arctan PWL | 6 | 4 |
 | quadrant fix-up | 5 | 3 |
 | cos + sin PWL | 24 | 13 |
 | pack | 2 | 1 |
-| **total** | **105** | **71** |
+| **total** | **101** | **68** |
 
-**Speed-up 1.48× against a ceiling of 2× — 74 % of ideal.**
+**Speed-up 1.49× against a ceiling of 2× — 74 % of ideal.**
 
 The shortfall is entirely the divider. Outside the divide, the schedule achieves
 45 → 26, which is 1.73× and close to ideal; inside it, 1.33×. The NOPs are
@@ -125,17 +125,17 @@ because there is no other work available that does not depend on the quotient.
 | phase | 1 slot | 2 slots | 3 slots |
 |---|---:|---:|---:|
 | operand prep | 8 | 5 | 4 |
-| restoring divide | 60 | 45 | 42 |
+| restoring divide | 56 | 42 | 42 |
 | arctan PWL | 6 | 4 | 3 |
 | quadrant fix-up | 5 | 3 | 2 |
 | cos + sin PWL | 24 | 13 | 10 |
 | pack | 2 | 1 | 1 |
-| **total** | **105** | **71** | **62** |
+| **total** | **101** | **68** | **62** |
 
-**Speed-up 1.69× against a ceiling of 3× — only 56 % of ideal.**
+**Speed-up 1.71× against a ceiling of 3× — only 57 % of ideal.**
 
 The third slot buys 9 cycles for 50 % more control-store width. Diminishing
-returns, and the reason is the same: 42 of the 62 cycles are a divide that
+returns, and the reason is the same: 39 of the 59 cycles are a divide that
 cannot be widened. **Adding issue slots cannot fix a serial dependency**, which
 is the general lesson this schedule demonstrates.
 
@@ -145,7 +145,7 @@ The firmware analysis makes the hardware decision quantitative rather than a
 matter of taste:
 
 - Replacing the restoring divider with a **reciprocal LUT plus multiply**
-  (~2–3 cycles instead of 60) would take the 1-slot figure from 105 to ~48 and
+  (~2–3 cycles instead of 56) would take the 1-slot figure from 101 to ~48 and
   remove the serial spine, at which point issue width would start paying off
   again.
 - **Hardware evaluates sin and cos genuinely in parallel** — two PWL units,
@@ -159,7 +159,36 @@ matter of taste:
 Cost/latency numbers for those options belong in the hardware section, which is
 still to be written.
 
-## 7. Open items
+## 7. It is implemented and tested
+
+The design above is not paper. `src/common/givensq_fw.c` implements it — the
+restoring divider written out as the shift/compare/subtract loop (not `/`), and
+the CSD-constrained slopes from `src/common/trig_pwl_csd.h`. `make test-firmware`
+checks it:
+
+| check | result |
+|---|---|
+| restoring divider vs exact `(n<<14)/d`, 214,643 cases | **0 mismatches** |
+| firmware: worst zeroing residual `\|c·o − s·a\|/r` | 0.000681 |
+| firmware: worst `\|c²+s²−1\|` | 0.000925 |
+| software (exact slopes), same measure | 0.000319 / 0.000698 |
+
+The firmware is ~2× less accurate than the software path, which is exactly the
+slope quantisation and not a defect.
+
+Note on how correctness is defined here: `theta` may differ from `atan2(o,a)`
+by pi, which negates **both** c and s. That is still a valid Givens rotation —
+it zeroes the same element — so the test asserts the two invariants that
+actually define the operation (it zeroes the element; it is a rotation) rather
+than comparing the angle to `atan2`.
+
+**Still to build: `givensq_fw.S`**, the ARM assembly. `givensq_fw.c` is its
+specification, and bit-for-bit equality against it is the acceptance test. That
+also closes scenario step 5 ("optimise by hand the assembly, assemble it, run it
+on an ARM machine"), and lets `objdump` confirm the 101-cycle hand count instead
+of it resting on my arithmetic.
+
+## 8. Open items
 
 - [ ] Settle the `(0, 0)` case. `calculate_arctan_ratio(0,0)` currently returns
       `+pi/2`, giving a 90° rotation rather than the identity. Harmless in the
@@ -167,8 +196,11 @@ still to be written.
       (0.06 per QR), but the C model, this microcode and the VHDL must agree.
 - [ ] Write out the full per-segment micro-routine listing for all 16 + 13 + 13
       segments, or state the control-store size and give one worked example.
-- [ ] Decide whether the shipped C should also move to 3-term CSD slopes so the
-      software and firmware compute bit-identical results. That costs ~2× error
-      in C for exact agreement with the firmware — worth stating either way.
-- [ ] Cross-check the hand cycle counts against a generated ARM listing for the
-      same operation sequence.
+- [x] Software and firmware deliberately use DIFFERENT slope tables: the real
+      ARM has SMULL, so the software keeps exact slopes and its better accuracy;
+      only the firmware and hardware are multiplier-free. Bit-exactness is
+      required between `givensq_fw.c`, `givensq_fw.S` and the VHDL — not between
+      firmware and software.
+- [ ] Cross-check the hand cycle counts against `givensq_fw.S` once written.
+      The 14-iteration divider is now measured (`fw_divide_restoring` reports
+      its own iteration count); the surrounding phases are still hand-counted.

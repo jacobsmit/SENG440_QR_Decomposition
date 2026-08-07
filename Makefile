@@ -57,7 +57,7 @@ WARN := -Wall -Wextra
 # Costs 3 instructions per measured call (~0.1%), inside the measured region.
 PROFILE_CFLAGS := -fno-optimize-sibling-calls
 
-.PHONY: all test-all test-parser profile-all static-all instr-all instr-detail cycles asip-asm compare clean help asm pwl-tables pwl-sweep
+.PHONY: all test-all test-parser test-firmware profile-all static-all instr-all instr-detail cycles asip-asm compare clean help asm pwl-tables pwl-sweep
 .PHONY: $(addprefix test-,$(VARIANTS)) $(addprefix profile-,$(VARIANTS))
 
 all: test-all
@@ -111,7 +111,19 @@ $(foreach v,$(VARIANTS),$(eval $(call VARIANT_RULES,$(v))))
 test-parser:
 	@python3 profiling/test_cycles_parser.py
 
-test-all: test-parser $(addprefix test-,$(VARIANTS))
+# The firmware model is the specification givensq_fw.S must match bit-for-bit,
+# so its own correctness is checked before any of the microcode claims rest on
+# it: the restoring divider against exact division, and the coefficients
+# against the two invariants that define a Givens rotation.
+$(BUILD)/givensq_fw/test: tests/test_givensq_fw.c src/common/givensq_fw.c $(COMMON_SRC) $(COMMON_HDR)
+	@mkdir -p $(dir $@)
+	$(CC) $(WARN) $(PORTABLE_CFLAGS) -o $@ \
+	    tests/test_givensq_fw.c src/common/givensq_fw.c $(COMMON_SRC) -lm
+
+test-firmware: $(BUILD)/givensq_fw/test
+	@$<
+
+test-all: test-parser test-firmware $(addprefix test-,$(VARIANTS))
 	@echo "=========================================="
 	@echo " ALL VARIANTS PASS"
 	@echo "=========================================="

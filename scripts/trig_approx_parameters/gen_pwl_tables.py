@@ -29,6 +29,31 @@ TRIG_Q = 14  # fractional bits for angles, ratios and sin/cos values
 SAMPLES = 200001
 
 
+def csd_slope(target, nterms=3):
+    """Closest sum of `nterms` signed powers of two to `target`.
+
+    The microcoded engine has no multiplier, so a slope must be expressible as
+    shift-adds. Because the result is an exact integer, m*x is still bit-exact
+    against a real multiply -- the C firmware model and the assembly agree
+    exactly, which is what makes the assembly testable rather than merely
+    plausible."""
+    best = [0, 1 << 30, []]
+
+    def rec(cur, used, terms):
+        if abs(cur - target) < best[1]:
+            best[0], best[1], best[2] = cur, abs(cur - target), list(terms)
+        if used == nterms:
+            return
+        for a in range(15):
+            for sgn in (1, -1):
+                terms.append((sgn, a))
+                rec(cur + sgn * (1 << a), used + 1, terms)
+                terms.pop()
+
+    rec(0, 0, [])
+    return best[0], best[2]
+
+
 def fit_segment(f, a, b):
     """Minimax linear fit on [a, b], returned in absolute form (m, c)."""
     x = np.linspace(a, b, SAMPLES)
