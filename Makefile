@@ -57,7 +57,7 @@ WARN := -Wall -Wextra
 # Costs 3 instructions per measured call (~0.1%), inside the measured region.
 PROFILE_CFLAGS := -fno-optimize-sibling-calls
 
-.PHONY: all test-all test-parser test-firmware profile-all static-all instr-all instr-detail cycles asip-asm compare clean help asm pwl-tables pwl-sweep
+.PHONY: all test-all test-parser test-firmware hw-pkg hw-vectors hw-sim hw-gates profile-all static-all instr-all instr-detail cycles asip-asm compare clean help asm pwl-tables pwl-sweep
 .PHONY: $(addprefix test-,$(VARIANTS)) $(addprefix profile-,$(VARIANTS))
 
 all: test-all
@@ -389,6 +389,45 @@ givensq-asm:
 	  echo "  assembles clean; mul/div instructions: $$($(ARM_DUMP) -d \
 	      $(BUILD)/givensq_fw.o | grep -ciE '\\b(mul|mla|smull|umull|sdiv|udiv)\\b')"; \
 	fi
+
+# ============================================================================
+# Hardware (scenario step 8): VHDL, testbench, simulated latency, gate count.
+#
+#   make hw-sim      analyse + elaborate + run the testbench (needs ghdl)
+#   make hw-gates    gate-equivalent estimate with the arithmetic shown
+#   make hw-pkg      regenerate the coefficient ROMs
+#   make hw-vectors  regenerate the test vectors from the C model
+#
+# The ROMs and the vectors both come from the C firmware model, so the C, the
+# ARM assembly and the VHDL cannot drift apart -- one vector file checks all
+# three.
+# ============================================================================
+GHDL ?= ghdl
+GHDL_FLAGS := --std=08 --workdir=$(BUILD)/ghdl
+
+hw-pkg:
+	@python3 scripts/trig_approx_parameters/gen_vhdl_pkg.py > hw/givensq_pkg.vhd
+	@echo "regenerated hw/givensq_pkg.vhd"
+
+hw-vectors: hw/vectors.txt
+
+hw/vectors.txt: tools/gen_hw_vectors.c src/common/givensq_fw.c $(COMMON_HDR)
+	@mkdir -p $(BUILD)
+	@$(CC) -O2 -o $(BUILD)/gen_hw_vectors tools/gen_hw_vectors.c src/common/givensq_fw.c
+	@./$(BUILD)/gen_hw_vectors hw/vectors.txt
+
+hw-sim: hw/vectors.txt
+	@if ! command -v $(GHDL) >/dev/null 2>&1; then \
+	  echo "ERROR: ghdl not installed (apt-get install ghdl)"; exit 1; fi
+	@mkdir -p $(BUILD)/ghdl
+	@$(GHDL) -a $(GHDL_FLAGS) hw/givensq_pkg.vhd
+	@$(GHDL) -a $(GHDL_FLAGS) hw/givensq.vhd
+	@$(GHDL) -a $(GHDL_FLAGS) hw/tb_givensq.vhd
+	@$(GHDL) -e $(GHDL_FLAGS) tb_givensq
+	@$(GHDL) -r $(GHDL_FLAGS) tb_givensq --assert-level=error
+
+hw-gates:
+	@python3 scripts/gate_count.py
 
 clean:
 	rm -rf $(BUILD) profiling/_profile_out
