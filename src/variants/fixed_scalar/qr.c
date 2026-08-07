@@ -17,7 +17,9 @@
 
 const char *const QR_VARIANT_NAME = "fixed_scalar";
 
-/* Apply a Givens rotation to rows i and j of A (mutates A). */
+/* Apply a Givens rotation to rows i and j of A (mutates A).
+   c and s are Q14 (the trig unit's format), the matrix is Q11, so the products
+   go through TRIG_MUL, which shifts by 14 and lands back in Q11. */
 static void apply_givens_rotation_A(int32_t *A, int32_t c, int32_t s, int32_t i,
                                     int32_t j) {
   OPC(rotations);
@@ -28,8 +30,8 @@ static void apply_givens_rotation_A(int32_t *A, int32_t c, int32_t s, int32_t i,
   for (int k = 0; k < MATRIX_SIZE; k++) {
     temp_i = row_i[k];
     temp_j = row_j[k];
-    row_j[k] = FIXED_MUL(c, temp_j) + FIXED_MUL(s, temp_i);
-    row_i[k] = FIXED_MUL(c, temp_i) - FIXED_MUL(s, temp_j);
+    row_j[k] = TRIG_MUL(c, temp_j) + TRIG_MUL(s, temp_i);
+    row_i[k] = TRIG_MUL(c, temp_i) - TRIG_MUL(s, temp_j);
   }
 }
 
@@ -44,8 +46,8 @@ static void apply_givens_rotation_Q(int32_t *Q, int32_t c, int32_t s, int32_t i,
   for (int k = 0; k < MATRIX_SIZE; k++) {
     temp_i = *col_i;
     temp_j = *col_j;
-    *col_j = FIXED_MUL(c, temp_j) + FIXED_MUL(s, temp_i);
-    *col_i = FIXED_MUL(c, temp_i) - FIXED_MUL(s, temp_j);
+    *col_j = TRIG_MUL(c, temp_j) + TRIG_MUL(s, temp_i);
+    *col_i = TRIG_MUL(c, temp_i) - TRIG_MUL(s, temp_j);
     col_i += MATRIX_SIZE;
     col_j += MATRIX_SIZE;
   }

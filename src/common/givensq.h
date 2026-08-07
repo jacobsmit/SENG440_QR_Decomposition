@@ -48,12 +48,17 @@ static inline int32_t givensq_pack(int32_t s_q14, int32_t c_q14) {
                    (uint32_t)(uint16_t)c_q14);
 }
 
+/* The PWL unit emits Q14 natively, so the packed result needs no rescaling.
+   Enforced rather than assumed -- a change to either format must be deliberate. */
+_Static_assert(GIVENSQ_Q == TRIG_FRAC_BITS,
+               "GIVENSQ result format must match the trig unit's output format");
+
 static inline int32_t givensq_ref(int32_t opposite, int32_t adjacent) {
   /* cos before sin, matching fixed_simd32, so the operation counters line up
      between the two variants and the comparison stays honest. */
-  int32_t angle = calculate_arctan_ratio(opposite, adjacent); /* Q11 */
-  int32_t c14 = cos_fixed(angle) << (GIVENSQ_Q - FIXED_FRAC_BITS);
-  int32_t s14 = sin_fixed(angle) << (GIVENSQ_Q - FIXED_FRAC_BITS);
+  int32_t angle = calculate_arctan_ratio(opposite, adjacent); /* Q14 */
+  int32_t c14 = cos_fixed(angle);
+  int32_t s14 = sin_fixed(angle);
   return givensq_pack(s14, c14);
 }
 

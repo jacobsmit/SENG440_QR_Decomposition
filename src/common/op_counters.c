@@ -46,8 +46,7 @@ void ops_report(const char *variant, const char *label, long normalise_by) {
       row("arctan_fixed()", e->call_arctan, normalise_by);
       row("sin_fixed()", e->call_sin, normalise_by);
       row("cos_fixed()", e->call_cos, normalise_by);
-      row("PWL segment 1", e->pwl_seg1, normalise_by);
-      row("PWL segment 2", e->pwl_seg2, normalise_by);
+      row("PWL table lookups", e->pwl_lookups, normalise_by);
       row("angle reductions", e->angle_folds, normalise_by);
       row("atan2 reciprocal path", e->atan2_reciprocal, normalise_by);
       row("divide-by-zero guard", e->div_by_zero, normalise_by);

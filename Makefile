@@ -57,7 +57,7 @@ WARN := -Wall -Wextra
 # Costs 3 instructions per measured call (~0.1%), inside the measured region.
 PROFILE_CFLAGS := -fno-optimize-sibling-calls
 
-.PHONY: all test-all profile-all static-all instr-all instr-detail cycles asip-asm compare clean help asm
+.PHONY: all test-all profile-all static-all instr-all instr-detail cycles asip-asm compare clean help asm pwl-tables pwl-sweep
 .PHONY: $(addprefix test-,$(VARIANTS)) $(addprefix profile-,$(VARIANTS))
 
 all: test-all
@@ -315,6 +315,30 @@ compare:
 	  echo "   its performance numbers above are not trustworthy."; \
 	  exit 1; \
 	fi
+
+# ============================================================================
+# PWL coefficient tables.
+#
+# The tables are GENERATED and committed, so a plain build needs no Python.
+# Regenerate only to change the segment width:
+#
+#   make pwl-tables P=4    regenerate at width 2^-4 (the committed default)
+#   make pwl-sweep         accuracy vs table size, across segment widths
+#
+# P is the knee-finding knob: accuracy improves as 2^-2P until the Q14
+# coefficients quantise, after which extra segments cost ROM and buy nothing.
+# Re-tighten the suite tolerances after changing it -- see tests/.
+# ============================================================================
+P ?= 4
+
+pwl-tables:
+	@python3 scripts/trig_approx_parameters/gen_pwl_tables.py $(P) \
+	    > src/common/trig_pwl_tables.h
+	@echo "regenerated src/common/trig_pwl_tables.h at P=$(P)"
+	@grep -m1 'summary' src/common/trig_pwl_tables.h || true
+
+pwl-sweep:
+	@./scripts/trig_approx_parameters/pwl_sweep.sh
 
 clean:
 	rm -rf $(BUILD) profiling/_profile_out

@@ -126,10 +126,12 @@ void qr_decomposition(const int32_t *A, int32_t *Q, int32_t *R) {
       int32_t opposite = Rs[i * MATRIX_SIZE + j];
       int32_t adjacent = Rs[j * MATRIX_SIZE + j];
 
+      /* trig_pwl returns Q14 natively, which is COEFF_BITS -- no repacking
+         shift, the coefficients drop straight into the SMLAD operand. */
       int32_t angle = calculate_arctan_ratio(opposite, adjacent);
-      int32_t c11 = cos_fixed(angle);
-      int32_t s11 = sin_fixed(angle);
-      int32_t cs = pack16((int16_t)(s11 << 3), (int16_t)(c11 << 3));
+      int32_t c14 = cos_fixed(angle);
+      int32_t s14 = sin_fixed(angle);
+      int32_t cs = pack16((int16_t)s14, (int16_t)c14);
 
       rotate_rows(Rs, cs, i, j);
       Rs[i * MATRIX_SIZE + j] = 0;

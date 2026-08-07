@@ -31,7 +31,8 @@ typedef struct {
 typedef struct {
   /* piecewise-linear trig */
   long call_arctan, call_sin, call_cos, call_atan2;
-  long pwl_seg1, pwl_seg2, angle_folds, atan2_reciprocal, div_by_zero;
+  long pwl_lookups; /* table-driven PWL: one shift+load+mul+add each */
+  long angle_folds, atan2_reciprocal, div_by_zero;
   long cordic_iterations;
   long libm_calls;     /* naive_float: libm transcendental calls */
   long givensq_calls;

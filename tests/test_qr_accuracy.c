@@ -6,9 +6,14 @@
  * changes the arithmetic, and without assertions those changes can destroy
  * correctness while the suite still reports success.
  *
- * Tolerances are ~1.5x the measured fixed_scalar baseline. A variant with
- * genuinely different error characteristics may need its own -- record them,
- * do not just widen these.
+ * Tolerances are ~1.4x the measured fixed_scalar baseline, which is the least
+ * accurate variant under test, so simd32/asip pass with margin and naive_float
+ * by an order of magnitude. A variant with genuinely different error
+ * characteristics may need its own -- record them, do not just widen these.
+ *
+ * They are tied to PWL_SEG_BITS in src/common/trig_pwl_tables.h. Changing the
+ * segment width changes the achievable error, so re-measure and re-tighten
+ * rather than leaving slack behind.
  */
 
 #include "../src/common/matrix_f32.h"
@@ -207,19 +212,19 @@ int main(int argc, char **argv) {
       {"Standard Mixed-Sign Matrix",
        {4.0f, 1.0f, -2.0f, 2.0f, 1.0f, 2.0f, 0.0f, 1.0f, -2.0f, 0.0f, 3.0f,
         -2.0f, 2.0f, 1.0f, -2.0f, 5.0f},
-       0.03f, 0.06f, 0, NULL},
+       0.005f, 0.006f, 0, NULL},
       {"Identity Matrix",
        {1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f,
         0.0f, 0.0f, 0.0f, 1.0f},
-       0.01f, 0.01f, 0, NULL},
+       0.005f, 0.005f, 0, NULL},
       {"Symmetric Positive Definite Matrix",
        {5.5f, 2.1f, 0.5f, 1.0f, 2.1f, 4.2f, 1.1f, 0.2f, 0.5f, 1.1f, 3.3f, 1.5f,
         1.0f, 0.2f, 1.5f, 6.0f},
-       0.07f, 0.07f, 0, NULL},
+       0.005f, 0.005f, 0, NULL},
       {"Negative Heavy Matrix",
        {-1.5f, -2.1f, 0.5f, -1.0f, -2.1f, -4.2f, -1.1f, 0.2f, 0.5f, -1.1f,
         -3.3f, -1.5f, -1.0f, 0.2f, -1.5f, -6.0f},
-       0.05f, 0.07f, 0, NULL},
+       0.005f, 0.005f, 0, NULL},
 
       /* Symmetric-PD scaled by 100. A rotation is scale-invariant, so the
          relative error must match the scale-1 case. Guards the FIXED_MUL
@@ -227,22 +232,24 @@ int main(int argc, char **argv) {
       {"Large Magnitude (SPD x100) -- overflow regression guard",
        {550.0f, 210.0f, 50.0f, 100.0f, 210.0f, 420.0f, 110.0f, 20.0f, 50.0f,
         110.0f, 330.0f, 150.0f, 100.0f, 20.0f, 150.0f, 600.0f},
-       0.07f, 0.07f, 0, NULL},
+       0.005f, 0.005f, 0, NULL},
   };
   const int n_cases = (int)(sizeof(cases) / sizeof(cases[0]));
 
-  /* Tolerances from a 4000-matrix measurement per magnitude on fixed_scalar:
-     worst relative recon 7.0-10.3%, worst orth 0.084-0.098. Limits sit ~1.4x
-     above that -- loose enough for jitter, far tighter than the ~100%+ a
-     32-bit overflow produces. */
+  /* Tolerances from a 5000-matrix measurement per magnitude on fixed_scalar
+     with the p=4 PWL tables: worst relative recon 0.35-0.47%, worst orth
+     0.0054-0.0061. Limits sit ~1.4x above that -- loose enough for jitter, far
+     tighter than the ~100%+ a 32-bit overflow produces.
+     RE-TIGHTEN these if the segment width changes: tolerances left at the old
+     2-segment levels (15%) would have accepted a 20x accuracy regression. */
   static const random_suite_t random_suites[] = {
-      {"Random small (max|A| = 4)", 4, 1000, 0.15f, 0.13f},
+      {"Random small (max|A| = 4)", 4, 1000, 0.007f, 0.009f},
       {"Random at the old overflow cliff (max|A| = 512)", 512, 1000, 0.15f,
        0.13f},
       {"Random 12-bit integers (max|A| = 2047)  <-- spec requirement", 2047,
-       1000, 0.15f, 0.13f},
-      {"Random large (max|A| = 65536)", 65536, 1000, 0.15f, 0.13f},
-      {"Random near Q11 ceiling (max|A| = 262144)", 262144, 1000, 0.15f, 0.13f},
+       1000, 0.007f, 0.009f},
+      {"Random large (max|A| = 65536)", 65536, 1000, 0.007f, 0.009f},
+      {"Random near Q11 ceiling (max|A| = 262144)", 262144, 1000, 0.007f, 0.009f},
   };
   const int n_random = (int)(sizeof(random_suites) / sizeof(random_suites[0]));
 

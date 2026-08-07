@@ -26,7 +26,7 @@ Three consequences that shape everything here:
 | variant | what |
 |---|---|
 | `naive_float` | floats + libm (`atan2f`/`cosf`/`sinf`). The baseline. |
-| `fixed_scalar` | Q11 fixed point, piecewise-linear trig |
+| `fixed_scalar` | Q11 fixed point, table-driven piecewise-linear trig |
 | `fixed_simd32` | + SIMD32 dual-MAC rotations (`SMLAD`/`SMUSDX`), 16-bit block floating point |
 | `fixed_asip` | + the `GIVENSQ` custom instruction replacing angle+sin+cos |
 
@@ -40,9 +40,13 @@ Instructions per QR, measured with callgrind on the target:
 | variant | instr/QR | vs baseline | worst rel. error |
 |---|---:|---:|---:|
 | `naive_float` | 3512 | 1.00× | 0.14 % |
-| `fixed_scalar` | 2290 | 1.53× | 10.27 % |
-| `fixed_simd32` | 2058 | 1.71× | 10.23 % |
-| `fixed_asip` (est.) | ~1154 | ~3.0× | 10.23 % |
+| `fixed_scalar` | 2290 | 1.53× | 0.47 % |
+| `fixed_simd32` | 2058 | 1.71× | 0.30 % |
+| `fixed_asip` (est.) | ~1154 | ~3.0× | 0.30 % |
+
+Instruction counts are from the 2-segment branch-select trig and are **stale**:
+the table-driven PWL replaced a compare chain with a shift and a load. Re-run
+`make compare` on the VM. The error column is current (`make pwl-sweep`).
 
 `fixed_asip`'s figure is an estimate: `GIVENSQ` is not a real instruction, so
 that build compiles but cannot run. Its latency comes from the firmware and
@@ -61,6 +65,8 @@ make cycles VARIANT=fixed_simd32 # dynamic opcode histogram
 make instr-detail VARIANT=x      # per-function instruction counts
 make static-all                  # static counts, variants x compiler flag sets
 make asip-asm                    # GIVENSQ listing (compiles; cannot assemble, by design)
+make pwl-sweep                   # trig accuracy vs table size
+make pwl-tables P=4              # regenerate the PWL coefficients
 ```
 
 `CG_ITERATIONS=200` raises the callgrind sample; `ITERATIONS`/`MAGNITUDE` control
@@ -69,15 +75,37 @@ the profiling workload.
 ## Layout
 
 ```
-src/common/      fixed.h (Q format, mul/div)  trig_pwl (PWL sin/cos/arctan)
+src/common/      fixed.h (Q11 matrix format)  trig_pwl (Q14 PWL sin/cos/arctan)
+                 trig_pwl_tables.h (GENERATED coefficients -- make pwl-tables)
                  givensq.h (custom instruction + reference model)
                  matrix, matrix_f32, qr_iface, op_counters
 src/variants/    one qr.c per variant
 tests/           accuracy regression suite (asserts, real exit codes)
 profiling/       cycles.py (opcode histogram), profile_ops.c (op counts),
                  arm_profile.sh (static analysis), flagsets.sh
+scripts/         gen_pwl_tables.py (emits the PWL tables), pwl_sweep.sh
 docs/            PROJECT_TODO.md (remaining work), NEW_INSTRUCTION_PLAN.md
 ```
+
+## Trig accuracy
+
+The PWL unit is table driven with segments of width 2⁻ᴾ, so the segment index is
+one shift and the coefficients one load — **cost is O(1) in the segment count**,
+and accuracy is bought with table ROM rather than instructions.
+
+| P | segments | table bytes | `fixed_scalar` rel. err | `fixed_simd32` rel. err |
+|---:|---:|---:|---:|---:|
+| 2 | 12 | 48 | 3.16 % | 3.05 % |
+| 3 | 22 | 88 | 1.07 % | 0.90 % |
+| **4** | **42** | **168** | **0.47 %** | **0.30 %** |
+| 5 | 84 | 336 | 0.41 % | 0.20 % |
+| 6 | 166 | 664 | 0.39 % | 0.19 % |
+
+P = 4 is the knee. Past it the Q14 coefficients quantise before the
+approximation does, so the extra ROM buys almost nothing — which is why angles,
+ratios and sin/cos values are all Q14 and not the Q11 of the matrix data.
+
+The previous 2-segment, branch-selected trig gave 10.27 % / 10.23 %.
 
 ## Measurement rules
 
