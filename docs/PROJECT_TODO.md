@@ -8,15 +8,34 @@ Done: 4 variants, accuracy regression suite, ARM measurement on target,
 
 ---
 
-## Blocking question
+## Scope: SETTLED
 
-- [ ] **Confirm QR alone satisfies the "matrix diagonalization" project.** Lesson
-      100 lists QR decomposition as an acceptable topic, but Lesson 112 says
-      *"Diagonalize a square matrix..."* and calls triangularization a side
-      effect. We compute one factorization: no sweeps, no eigenvalues.
-      Cheapest fix if it is not enough: add the outer QR iteration
-      (`A_{k+1} = R_k Q_k` until the sub-diagonal is small), which keeps all
-      existing work and supplies the convergence analysis the notes ask for.
+One-sided Givens QR decomposition, single pass. No outer iteration, no sweeps,
+no Jacobi. Decided deliberately; do not reopen.
+
+Justification for the report's introduction:
+- Lesson 100 p.5 lists project 12 as *"Matrix diagonalization (QR
+  decomposition, eigenvalue decomposition, singular-value decomposition)"* --
+  QR decomposition is named outright.
+- Lesson 112's "Jacobi method -- side effects" slide: *"Matrix
+  triangularization can be achieved with one-side rotations. Upper
+  triangularization with left-side rotations."* That is the instructor placing
+  one-sided Givens QR inside the Jacobi framework as its one-sided case.
+
+Consequence to own in the report: a single QR **triangularizes, it does not
+diagonalize**, so Lesson 112's "incomplete rotations only slow convergence"
+argument is NOT available -- there is no iteration to converge. Accuracy has to
+stand on its own, which is why the PWL error budget matters (docs/PWL_ERROR.md).
+
+## Open measurement question
+
+- [ ] **The baseline may be overstated.** README quotes `naive_float` at
+      3390.5 instr/QR, measured through the fixed-point interface and including
+      libc startup that fell inside the collect toggle. At its NATIVE float
+      interface, algorithm only (main binary + libm, libc excluded), it is
+      2411 instr/QR. That moves `fixed_simd32` from 1.61x to **1.15x**. The
+      README's own policy says the native interface is the right one. Settle
+      this before any speed-up number goes in the report.
 
 ## Firmware — §1.5, nothing exists, explicitly required
 
