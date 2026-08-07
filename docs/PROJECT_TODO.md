@@ -70,6 +70,45 @@ HW-vs-SW and 2-issue-FW-vs-SW speed-ups done (`HARDWARE.md`).
       assembly for it (step 5). The whole 4x4 matrix is 16 x `int16_t` = 8
       registers, so both active rows can stay in registers for a whole rotation.
 
+## Alternative worth trying: CORDIC
+
+- [ ] **Add a `fixed_cordic` variant.** Trig is 45.94 % of the instruction
+      stream, so it is the right thing to attack, and CORDIC replaces
+      `atan2 -> sin -> cos` with shift-adds and a small angle table. Lesson 112
+      says outright: *"The student(s) doing the SVD project should consult the
+      student(s) doing the CORDIC project."* The infrastructure already expects
+      it -- `op_counters.h` carries `shift_add` and `cordic_iterations`, and a
+      variant is one new `src/variants/<name>/qr.c` plus a line in `VARIANTS`.
+
+      **The software case is uncertain, and worth measuring rather than
+      assuming.** Rough count for Q14: vectoring for the angle plus a rotation
+      pass to recover c and s is ~2 x 14 iterations x 4-5 ops = 112-160 ops,
+      against 160.7 instructions/rotation for the current PWL trig. So somewhere
+      between a 1.4x win and a wash -- and that is only the trig. If the
+      rotations are also done in CORDIC it will get *worse*, because CORDIC
+      trades multiplies for shift-adds and the A7 has `SMLAD`, which retires two
+      MACs per instruction. The likely best shape is **CORDIC for the angle and
+      coefficients, SIMD32 for the rotations**, not CORDIC end to end.
+
+      **The ASIP case is much stronger, and is the real reason to try it.** Both
+      the firmware and the hardware analyses land on the same block:
+      - firmware: the restoring divide is 56 of 101 cycles (55 %), and being a
+        serial dependency chain it caps the 2-issue speed-up at 1.49x of a
+        possible 2x;
+      - hardware: 14 of 20 clocks (70 %), and the two PWL multipliers are 2,912
+        of 5,634 gate equivalents (52 %).
+
+      **CORDIC vectoring mode needs neither a divider nor a multiplier.** It
+      would delete the block both analyses identify as the bottleneck and roughly
+      halve the gate count, in exchange for ~14-16 sequential iterations. That is
+      a real architecture comparison for the report -- PWL + divide versus
+      CORDIC -- rather than just one more variant.
+
+      Suggested order: build the software variant first (it is cheap, and the
+      accuracy suite and profiler work on it unchanged), get a measured instr/QR
+      figure, then re-cost the hardware unit with a CORDIC datapath against the
+      5,634 GE / 20 clocks already recorded in `HARDWARE.md`.
+
 ## Numerical
 
 - [ ] Broaden the test matrices: near-singular, ill-conditioned, zero-on-
