@@ -37,6 +37,7 @@ CLASS_CYCLES = {
     "fp_add": 4,       # TODO(TRM) vadd/vsub/vmul .f32
     "fp_div": 15,      # TODO(TRM) vdiv/vsqrt .f32 -- NOT pipelined
     "fp_move": 2,      # TODO(TRM) vmov/vldr/vstr
+    "simd_int": 2,     # TODO(TRM) NEON integer -- NOT floating point
     "other": 1,
 }
 
@@ -58,8 +59,33 @@ CLASSIFY = [
 COND = re.compile(r"(eq|ne|cs|hs|cc|lo|mi|pl|vs|vc|hi|ls|ge|lt|gt|le|al)$")
 
 
+# A NEON mnemonic's data type lives in the suffix, not the mnemonic: vadd.i32 is
+# integer SIMD and vadd.f32 is floating point. Dropping the suffix made them
+# identical and reported integer NEON as FP arithmetic -- which would
+# contradict, in the tool's own output, the claim that the fixed-point variants
+# use no floating point.
+FP_TYPE = re.compile(r"^f(16|32|64)$")
+INT_TYPE = re.compile(r"^([isu](8|16|32|64)|p(8|64))$")
+VEC_ARITH = re.compile(r"^v(add|sub|mul|mla|mls|fma|fms|neg|abs|cvt|cmp|shl|"
+                       r"shr|qadd|qsub|padd|pmul|max|min|and|orr|eor|bic|mvn)")
+SIZE_SUFFIX = frozenset(("n", "w"))     # Thumb encoding width, not a data type
+
+
 def classify(mnemonic):
-    m = mnemonic.split(".")[0]          # drop .n/.w/.f32 suffixes
+    parts = mnemonic.split(".")
+    m = parts[0]
+    types = [p for p in parts[1:] if p not in SIZE_SUFFIX]
+
+    # Vector arithmetic: let the data type decide. vcvt.f32.s32 is a genuine
+    # int<->float conversion and counts as FP, hence "any float type wins".
+    if VEC_ARITH.match(m):
+        if any(FP_TYPE.match(t) for t in types):
+            return "fp_div" if m.startswith(("vdiv", "vsqrt")) else "fp_add"
+        if any(INT_TYPE.match(t) for t in types):
+            return "simd_int"
+        # Untyped (e.g. plain "vmov" between core and VFP registers) is register
+        # traffic, not arithmetic -- fp_move, via the table below.
+
     for rx, cls in CLASSIFY:
         if rx.match(m):
             return cls

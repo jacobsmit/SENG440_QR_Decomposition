@@ -18,3 +18,7 @@ gmon.out
 callgrind.out.*
 cachegrind.out.*
 perf.data*
+
+# python
+__pycache__/
+*.pyc

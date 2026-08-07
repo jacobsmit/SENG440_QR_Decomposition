@@ -112,6 +112,20 @@ fn=(1)
 check("bare id reference recovers the earlier name",
       [f for _, f, _, _ in parse(REDEF)], ["first", "second", "first"])
 
+# --- 6. NEON integer is not floating point ----------------------------------
+# The data type is in the suffix, so dropping it made vadd.i32 indistinguishable
+# from vadd.f32. The fixed-point variants would then appear to use FP
+# arithmetic in the tool's own output, contradicting the thing being claimed.
+for mn, want in [("vadd.i32", "simd_int"), ("vadd.f32", "fp_add"),
+                 ("vmul.i16", "simd_int"), ("vmul.f64", "fp_add"),
+                 ("vcvt.f32.s32", "fp_add"),   # genuine int<->float conversion
+                 ("vshl.i32", "simd_int"),
+                 ("vmov", "fp_move"),          # untyped: register traffic
+                 ("vldr", "fp_move"), ("vdiv.f32", "fp_div"),
+                 ("add.w", "alu"), ("addne", "alu"),
+                 ("smlad", "mac_simd32"), ("sdiv", "div"), ("ldr", "load")]:
+    check(f"classify({mn}) == {want}", cycles.classify(mn), want)
+
 print()
 if failures:
     print(f"{len(failures)} FAILED\n")

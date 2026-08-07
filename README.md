@@ -76,6 +76,28 @@ Caveat: the `naive_float` comparison is instruction counts, not cycles. Whether
 fixed point wins on *cycles* depends on Cortex-A7 VFP latencies, which are not
 yet sourced from the TRM — see `docs/PROJECT_TODO.md`.
 
+### Instruction mix
+
+`fixed_simd32`, exact (`make cycles VARIANT=fixed_simd32`), 2100.9 instr/QR:
+
+| class | share |
+|---|---:|
+| alu | 47.6 % |
+| load | 22.7 % |
+| store | 13.3 % |
+| branch | 6.6 % |
+| `mac_simd32` (SMLAD/SMUSDX) | 4.6 % |
+| stack | 2.3 % |
+| mul | 1.0 % |
+| div (SDIV) | 0.3 % |
+
+Memory is 36.0 % and arithmetic only 5.9 %, which is why the hand-assembly plan
+targets memory traffic rather than the arithmetic.
+
+Two independent cross-checks that this histogram is sound: callgrind sees
+5.94 SDIV/QR and 96.0 SMLAD/QR, and the C-level operation counters
+independently report 5.94 divides and 96.0 MACs per QR.
+
 ### Where the instructions go
 
 Per function, `fixed_simd32`, from `make instr-detail` (50 QRs):
