@@ -125,12 +125,12 @@ because there is no other work available that does not depend on the quotient.
 | phase | 1 slot | 2 slots | 3 slots |
 |---|---:|---:|---:|
 | operand prep | 8 | 5 | 4 |
-| restoring divide | 56 | 42 | 42 |
+| restoring divide | 56 | 42 | 39 |
 | arctan PWL | 6 | 4 | 3 |
 | quadrant fix-up | 5 | 3 | 2 |
 | cos + sin PWL | 24 | 13 | 10 |
 | pack | 2 | 1 | 1 |
-| **total** | **101** | **68** | **62** |
+| **total** | **101** | **68** | **59** |
 
 **Speed-up 1.71× against a ceiling of 3× — only 57 % of ideal.**
 
