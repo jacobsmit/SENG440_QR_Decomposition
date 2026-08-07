@@ -49,16 +49,15 @@ Three properties worth stating in the report:
 
 ## 2. Latency
 
-Measured by simulation, `make hw-sim`, which reports min/max over the vector
-set:
+**Measured** by simulation, `make hw-sim`, 301/301 vectors passing:
 
 | path | clocks |
 |---|---:|
-| typical (divide taken) | **19** |
-| `adjacent == 0` (no divide, no arctan) | 3 |
-| `abs(n) >= abs(d)` (ratio exactly 1.0, divide skipped) | 5 |
+| typical (divide taken) | **20** |
+| `abs(n) >= abs(d)` (ratio exactly 1.0, divide skipped) | 6 |
+| `adjacent == 0` (no divide, no arctan) | 4 |
 
-The divide is **14 of the 19 clocks — 74 %**. It is data independent, so the
+The divide is **14 of the 20 clocks — 70 %**. It is data independent, so the
 typical figure is also the worst case.
 
 ## 3. Gate count
@@ -110,7 +109,7 @@ that property for accuracy.
 | **restoring, 1 bit/clock** (implemented) | 14 | 454 GE | cheap, serial |
 | reciprocal LUT + multiply | ~3 | ~4,470 GE | 256×16 ROM + a multiplier |
 
-The LUT removes 11 of 19 clocks — a **2.4× faster instruction** — for **+71 %
+The LUT removes 11 of 20 clocks — a **2.2× faster instruction** — for **+71 %
 area** (5,634 → 9,650 GE). Whether that is worth it depends on how much of the
 whole program the instruction accounts for, which §6 answers: it is not.
 
@@ -130,9 +129,9 @@ QR (`make instr-detail`) over 6 rotations = **160.7 instructions per rotation**.
 | firmware, 1 issue slot | 101 cycles | 1.59× |
 | firmware, 2 issue slots | 68 cycles | **2.36×** |
 | firmware, 3 issue slots | 59 cycles | 2.72× |
-| **hardware** | **19 clocks** | **8.46×** |
+| **hardware** | **20 clocks** | **8.03×** |
 
-Hardware against firmware: **5.3×** over 1 slot, **3.6×** over 2 slots.
+Hardware against firmware: **5.05×** over 1 slot, **3.4×** over 2 slots.
 
 Instruction-for-cycle parity is assumed above, which *understates* the hardware:
 the software mix averages ~1.87 cycles/instruction under the model in
@@ -146,16 +145,16 @@ Amdahl, using the measured trig fraction (45.94 % of 2100.9 instructions/QR):
 ```
   current                    2100.9 instr/QR
   minus trig                 -963.9
-  plus 6 rotations x 19        +114
+  plus 6 rotations x 20        +120
   ------------------------------------
-  with hardware GIVENSQ      ~1251 per QR   ->  1.68x whole-QR speed-up
+  with hardware GIVENSQ      ~1257 per QR   ->  1.67x whole-QR speed-up
   ceiling (GIVENSQ free)                        1.85x
 ```
 
-**1.68× of a possible 1.85× — 91 % of the ceiling.** Making the instruction
+**1.67× of a possible 1.85× — 90 % of the ceiling.** Making the instruction
 faster still cannot beat 1.85×, which is why the reciprocal-LUT divider is not
-worth its 71 % area: it would move the whole-program figure from 1.68× to about
-1.78×, buying 6 % for nearly double the gates.
+worth its 71 % area: it would move the whole-program figure from 1.67× to about
+1.77×, buying 6 % for nearly double the gates.
 
 ## 7. Penalty for the hardware solution
 
@@ -164,12 +163,12 @@ Required explicitly by Lesson 112 requirements II.
 1. **Area.** 5,634 GE for one instruction. A small 32-bit integer core is on the
    order of 20–30 k GE, so this is roughly a **20–25 % enlargement of the core**
    to accelerate one algorithm.
-2. **Multi-cycle latency breaks the single-cycle assumption.** At 19 clocks
+2. **Multi-cycle latency breaks the single-cycle assumption.** At 20 clocks
    `GIVENSQ` cannot issue and retire like an ALU operation. The pipeline needs
    an interlock or a stall, which complicates control logic across the whole
    processor rather than only inside this unit.
 3. **Compiler scheduling.** The notes raise this and it is real: a scheduler can
-   only hide a 19-cycle latency if it has 19 cycles of independent work, and the
+   only hide a 20-cycle latency if it has 20 cycles of independent work, and the
    Givens loop does not — the rotation immediately consumes c and s.
 4. **Utilisation.** The unit is idle for every workload that is not doing a QR
    decomposition. That area is dead for general-purpose code.
@@ -182,8 +181,11 @@ it raises no interrupt, context-switch or exception-restart questions.
 
 ## 8. Open items
 
-- [ ] Run `make hw-sim` and paste the measured latency; the 19 clocks above is
-      read off the FSM and must be confirmed by simulation.
+- [x] Simulated: 301/301 vectors pass, latency 20 clocks (`make hw-sim`).
+      The first run failed 62 of 301 — three minimax intercepts were 1 LSB
+      apart because each generator had its own copy of the table builder with a
+      different sample count. All three now share one builder, and
+      `make check-tables` asserts they stay identical.
 - [ ] **Settle the `(0,0)` case.** `hw/vectors.txt` currently encodes the
       software behaviour: `atan2(0,0)` returns `+pi/2`, giving a 90° rotation
       rather than the identity. Harmless (still orthogonal, and `R[i][j]` is

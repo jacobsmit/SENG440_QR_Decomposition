@@ -26,18 +26,9 @@ PI4 = np.pi / 4
 
 
 def build(f, lo, hi):
-    width = 2.0 ** -P
-    nseg = int(np.ceil((hi - lo) / width))
-    ents = []
-    for i in range(nseg):
-        a, b = lo + i * width, min(lo + (i + 1) * width, hi)
-        x = np.linspace(a, b, 4001)
-        xq = np.round(x * SC).astype(np.int64)
-        mq, _ = g.csd_slope(int(round((f(b) - f(a)) / (b - a) * SC)), 3)
-        r = f(x) - ((mq * xq) >> Q) / SC
-        ents.append((mq, int(round((r.max() + r.min()) / 2 * SC))))
-    ents.append(ents[-1])           # guard entry, as in the C tables
-    return ents
+    """Shared builder -- see gen_pwl_tables.build_csd_table for why this must
+    NOT be a local re-implementation."""
+    return [(m, b) for m, b, _ in g.build_csd_table(f, lo, hi, P)]
 
 
 def main():

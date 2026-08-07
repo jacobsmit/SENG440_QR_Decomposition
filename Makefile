@@ -57,7 +57,7 @@ WARN := -Wall -Wextra
 # Costs 3 instructions per measured call (~0.1%), inside the measured region.
 PROFILE_CFLAGS := -fno-optimize-sibling-calls
 
-.PHONY: all test-all test-parser test-firmware hw-pkg hw-vectors hw-sim hw-gates profile-all static-all instr-all instr-detail cycles asip-asm compare clean help asm pwl-tables pwl-sweep
+.PHONY: all test-all test-parser test-firmware check-tables hw-pkg hw-vectors hw-sim hw-gates profile-all static-all instr-all instr-detail cycles asip-asm compare clean help asm pwl-tables pwl-sweep
 .PHONY: $(addprefix test-,$(VARIANTS)) $(addprefix profile-,$(VARIANTS))
 
 all: test-all
@@ -132,7 +132,13 @@ $(BUILD)/givensq_fw/test: tests/test_givensq_fw.c src/common/givensq_fw.c $(FW_A
 test-firmware: $(BUILD)/givensq_fw/test
 	@$<
 
-test-all: test-parser test-firmware $(addprefix test-,$(VARIANTS))
+# The C, VHDL and ARM-assembly coefficient tables must be identical or the
+# three implementations are not the same thing. They drifted once; this makes
+# that loud instead of silent.
+check-tables:
+	@python3 scripts/check_tables_agree.py
+
+test-all: test-parser check-tables test-firmware $(addprefix test-,$(VARIANTS))
 	@echo "=========================================="
 	@echo " ALL VARIANTS PASS"
 	@echo "=========================================="
@@ -406,8 +412,11 @@ GHDL ?= ghdl
 GHDL_FLAGS := --std=08 --workdir=$(BUILD)/ghdl
 
 hw-pkg:
+	@python3 scripts/trig_approx_parameters/gen_csd_header.py > src/common/trig_pwl_csd.h
 	@python3 scripts/trig_approx_parameters/gen_vhdl_pkg.py > hw/givensq_pkg.vhd
-	@echo "regenerated hw/givensq_pkg.vhd"
+	@python3 scripts/trig_approx_parameters/gen_givensq_asm.py > src/common/givensq_fw.S
+	@echo "regenerated the C header, the VHDL package and the ARM assembly"
+	@python3 scripts/check_tables_agree.py
 
 hw-vectors: hw/vectors.txt
 

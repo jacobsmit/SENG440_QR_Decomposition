@@ -49,20 +49,9 @@ def w(line=""):
 
 
 def build(f, lo, hi):
-    """Per-segment (csd_terms, intercept), matching trig_pwl_csd.h exactly."""
-    width = 2.0 ** -P
-    nseg = int(np.ceil((hi - lo) / width))
-    ents = []
-    for i in range(nseg):
-        a, b = lo + i * width, min(lo + (i + 1) * width, hi)
-        x = np.linspace(a, b, 20001)
-        xq = np.round(x * SC).astype(np.int64)
-        mq, terms = g.csd_slope(int(round((f(b) - f(a)) / (b - a) * SC)), 3)
-        r = f(x) - ((mq * xq) >> Q) / SC
-        cq = int(round((r.max() + r.min()) / 2 * SC))
-        ents.append((mq, cq, terms))
-    ents.append(ents[-1])           # guard entry, as in the C tables
-    return ents
+    """Shared builder -- see gen_pwl_tables.build_csd_table for why this must
+    NOT be a local re-implementation."""
+    return g.build_csd_table(f, lo, hi, P)
 
 
 def emit_const(reg, value):

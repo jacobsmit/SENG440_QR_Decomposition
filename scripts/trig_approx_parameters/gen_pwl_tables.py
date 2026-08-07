@@ -54,6 +54,33 @@ def csd_slope(target, nterms=3):
     return best[0], best[2]
 
 
+def build_csd_table(f, lo, hi, p, nterms=3):
+    """Per-segment (m, b, terms) with CSD-constrained slopes.
+
+    THE single source for the firmware coefficient tables. src/common/
+    trig_pwl_csd.h, hw/givensq_pkg.vhd and src/common/givensq_fw.S are all
+    emitted from this function, because when they were each built by their own
+    near-copy of it the sample counts drifted apart, three minimax intercepts
+    came out 1 LSB different, and the VHDL testbench failed 62 of 301 vectors
+    against the C model. Bit-exactness across the three implementations is only
+    real if one function produces all three tables.
+    """
+    width = 2.0 ** -p
+    nseg = int(np.ceil((hi - lo) / width))
+    ents = []
+    for i in range(nseg):
+        a, b = lo + i * width, min(lo + (i + 1) * width, hi)
+        x = np.linspace(a, b, SAMPLES)
+        xq = np.round(x * (1 << TRIG_Q)).astype(np.int64)
+        mq, terms = csd_slope(int(round((f(b) - f(a)) / (b - a) * (1 << TRIG_Q))),
+                              nterms)
+        r = f(x) - ((mq * xq) >> TRIG_Q) / (1 << TRIG_Q)
+        cq = int(round((r.max() + r.min()) / 2 * (1 << TRIG_Q)))
+        ents.append((mq, cq, terms))
+    ents.append(ents[-1])           # guard entry: see build_table()
+    return ents
+
+
 def fit_segment(f, a, b):
     """Minimax linear fit on [a, b], returned in absolute form (m, c)."""
     x = np.linspace(a, b, SAMPLES)
