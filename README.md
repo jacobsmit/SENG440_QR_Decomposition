@@ -38,26 +38,39 @@ Add one: create `src/variants/<name>/qr.c` implementing `qr_decomposition()`
 Instructions per QR, measured with callgrind on the target:
 
 | variant | instr/QR | vs baseline | worst rel. error |
-|---|---:|---:|---:|---:|
+|---|---:|---:|---:|
 | `naive_float` | 3390.5 | 1.00× | 0.14 % |
-| `fixed_scalar` | 2350.7 | 1.44× | 0.47 % |
-| `fixed_simd32` | 2112.7 | 1.61× | 0.30 % |
-| `fixed_asip` (C model) | 2136.7 | 1.59× | 0.30 % |
-
-Measured together in one callgrind run at `CG_ITERATIONS=50`, so the columns are
-comparable to each other. They are **not** comparable to figures from before the
-table-driven PWL landed: `naive_float` moved 3.5 % between runs despite being
-untouched by that change, so something else in the measurement conditions
-differs and the cause is not yet identified. To get a true before/after, run
-both commits on the same machine in one sitting:
-
-```sh
-git checkout HEAD~1 && make clean && make instr-all && git checkout main
-```
+| `fixed_scalar` | 2338.9 | 1.45× | 0.47 % |
+| `fixed_simd32` | 2100.9 | 1.61× | 0.30 % |
+| `fixed_asip` (C model) | 2124.9 | 1.60× | 0.30 % |
 
 `fixed_asip`'s row is the C reference model, not the instruction — it costs
 slightly MORE than `fixed_simd32` because of the extra call layer. The ASIP
 figure cannot be measured; it comes from the firmware and hardware designs.
+
+### Cost of the table-driven trig
+
+A/B on the same machine in one sitting, `4fe5fb7` (2-segment, branch-selected)
+against `5fac1c6` (table-driven):
+
+| variant | before | after | delta | speed-up |
+|---|---:|---:|---:|---:|
+| `naive_float` | 3388.1 | 3390.5 | +0.07 % | 1.00× → 1.00× |
+| `fixed_scalar` | 2290.1 | 2338.9 | +2.13 % | 1.48× → 1.45× |
+| `fixed_simd32` | 2058.1 | 2100.9 | +2.08 % | 1.65× → 1.61× |
+| `fixed_asip` | 2082.1 | 2124.9 | +2.06 % | 1.63× → 1.60× |
+
+`naive_float` moves 0.07 % and is untouched by the change, which is what makes
+the other three rows trustworthy. **The trade is 2.1 % of the instructions for
+34× the accuracy** (10.23 % → 0.30 %). Segment count itself is free — 42
+segments cost what 4 would — but the table is not free against the 2-segment
+version it replaced, which held its coefficients as immediates and so did no
+load and no unpacking.
+
+An earlier figure of 3512 for `naive_float` appears in the project history. It
+was stale, not a measurement artefact: the baseline is stable at ~3389 across
+both commits. Any speed-up quoted against 3512 (e.g. the old 1.71×) mixed
+measurements from different code states.
 
 Caveat: the `naive_float` comparison is instruction counts, not cycles. Whether
 fixed point wins on *cycles* depends on Cortex-A7 VFP latencies, which are not
@@ -122,8 +135,14 @@ The previous 2-segment, branch-selected trig gave 10.27 % / 10.23 %.
 
 The last table entry of each function is a duplicate guard: `|ratio| == 1`
 (i.e. `|N| == |D|`, common in these matrices) indexes one past the final
-segment. 4 bytes of ROM per function removes a bounds compare and a conditional
-move from every evaluation.
+segment. 12 bytes of ROM removes the bounds check entirely — worth 11.8
+instructions/QR, measured.
+
+Only `arctan` was actually paying for that check. In `sin`/`cos` the enclosing
+`if (abs_X > PI_OVER_4_FIXED)` proves the index is in range, so gcc had already
+eliminated it; `arctan_fixed` has no such visible bound, since `|X| <= 1` is
+guaranteed by its caller across a function boundary. 5.94 arctan calls/QR × 2
+instructions = 11.9 predicted against 11.8 measured.
 
 ## Measurement rules
 
