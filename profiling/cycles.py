@@ -163,7 +163,19 @@ def parse_callgrind(path, reset_on_fn=False):
                 # function. Resetting made addresses drift once a function
                 # began with a relative position, which showed up as ~20% of
                 # instructions "unmapped" at offsets beyond the function size.
-            elif line.startswith(("cob=", "cfi=", "cfn=", "fi=", "fe=", "fl=",
+            # cob=/cfn= name the CALLEE, so they must not change the current
+            # object or function -- but they SHARE the id namespace with ob=/fn=
+            # and frequently introduce an id first. Skipping them outright left
+            # those ids undefined, so a later bare "fn=(id)" fell through to the
+            # previous name: libc's own cost blocks got labelled with whatever
+            # function was current, typically qr_decomposition. Record the
+            # definition, discard the value.
+            elif line.startswith("cob="):
+                resolve(line[4:], ob_names, ob)
+            elif line.startswith("cfn="):
+                resolve(line[4:], fn_names, fn)
+            elif line.startswith(("cfi=", "cfl=", "fi=", "fe=", "fl=",
+                                  "jump=", "jcnd=",
                                   "events:", "version:", "creator:", "cmd:",
                                   "part:", "desc:", "summary:", "totals:")):
                 continue

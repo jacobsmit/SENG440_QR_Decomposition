@@ -57,7 +57,7 @@ WARN := -Wall -Wextra
 # Costs 3 instructions per measured call (~0.1%), inside the measured region.
 PROFILE_CFLAGS := -fno-optimize-sibling-calls
 
-.PHONY: all test-all profile-all static-all instr-all instr-detail cycles asip-asm compare clean help asm pwl-tables pwl-sweep
+.PHONY: all test-all test-parser profile-all static-all instr-all instr-detail cycles asip-asm compare clean help asm pwl-tables pwl-sweep
 .PHONY: $(addprefix test-,$(VARIANTS)) $(addprefix profile-,$(VARIANTS))
 
 all: test-all
@@ -105,7 +105,13 @@ $(foreach v,$(VARIANTS),$(eval $(call VARIANT_RULES,$(v))))
 # banner can print. Correct by construction -- no shell flag to get wrong.
 # (An earlier shell-loop version printed "ALL VARIANTS PASS" while sub-makes
 # were failing, which is precisely the bug this suite exists to prevent.)
-test-all: $(addprefix test-,$(VARIANTS))
+# The callgrind parser has broken silently four times, each time producing a
+# plausible-looking but wrong histogram. Cheap to check, so it runs with the
+# accuracy suite rather than only when someone remembers.
+test-parser:
+	@python3 profiling/test_cycles_parser.py
+
+test-all: test-parser $(addprefix test-,$(VARIANTS))
 	@echo "=========================================="
 	@echo " ALL VARIANTS PASS"
 	@echo "=========================================="

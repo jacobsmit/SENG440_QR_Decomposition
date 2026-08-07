@@ -76,10 +76,34 @@ Caveat: the `naive_float` comparison is instruction counts, not cycles. Whether
 fixed point wins on *cycles* depends on Cortex-A7 VFP latencies, which are not
 yet sourced from the TRM — see `docs/PROJECT_TODO.md`.
 
+### Where the instructions go
+
+Per function, `fixed_simd32`, from `make instr-detail` (50 QRs):
+
+| function | instr/QR | share |
+|---|---:|---:|
+| `qr_decomposition` (rotations, scaling) | 1134.0 | 54.06 % |
+| `sin_fixed` | 292.4 | 13.94 % |
+| `cos_fixed` | 255.5 | 12.18 % |
+| `calculate_arctan_ratio` | 225.9 | 10.77 % |
+| `arctan_fixed` | 190.1 | 9.06 % |
+
+Trig is **963.9 instr/QR, 45.94 %**, so replacing all of it with a zero-cost
+`GIVENSQ` caps the whole-program speed-up at **1.85×** over `fixed_simd32` —
+report the capped figure, not the kernel speed-up. That implies ~1140 instr/QR
+for the ASIP, ~2.97× over `naive_float`.
+
+The ceiling *rose* from 1.79× (trig was 44.22 % with the 2-segment tables):
+making the trig more accurate gave `GIVENSQ` more work to absorb. The 1.85× is
+an instruction-count bound and assumes `GIVENSQ` issues as one instruction; its
+real cost is a multi-cycle latency that comes from the firmware and hardware
+designs, so this is an upper bound, not a prediction.
+
 ## Commands
 
 ```sh
-make test-all                    # accuracy suite, every variant; non-zero exit on failure
+make test-all                    # parser tests + accuracy suite, every variant
+make test-parser                 # callgrind parser regression tests (no VM needed)
 make compare                     # ops + accuracy + instruction counts + static analysis
 make cycles VARIANT=fixed_simd32 # dynamic opcode histogram
 make instr-detail VARIANT=x      # per-function instruction counts
